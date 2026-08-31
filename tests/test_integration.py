@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
@@ -57,7 +56,7 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(len(list((root / '.local/state/omarchy/keyboard-settings/removed').glob('*/manifest.json'))), 1)
 
 
-class GuardianIntegration(unittest.TestCase):
+class HelperIntegration(unittest.TestCase):
     def test_helper_does_not_write_into_the_watched_plugin_tree(self):
         project = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix='keyboard-cache-') as directory:
@@ -69,43 +68,5 @@ class GuardianIntegration(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(json.loads(result.stdout)['ok'])
             self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob('*')), before)
-
-    def test_guardian_recovers_after_parent_exits(self):
-        project = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory(prefix='keyboard-guardian-') as directory:
-            root = Path(directory)
-            conf = root / 'config/hypr'
-            conf.mkdir(parents=True)
-            (conf / 'hyprland.lua').write_text('require("default.hypr.toggles")\n')
-            listing = root / 'devices.json'
-            original = [keyboard()]
-            listing.write_text(json.dumps(original))
-            binaries = root / 'bin'
-            binaries.mkdir()
-            fake = binaries / 'hyprctl'
-            shutil.copyfile(project / 'tests/fake_hyprctl.py', fake)
-            fake.chmod(0o700)
-            env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
-                       KEYBOARD_TEST_DEVICES=str(listing), XDG_CONFIG_HOME=str(root / 'config'),
-                       XDG_STATE_HOME=str(root / 'state'), HYPRLAND_INSTANCE_SIGNATURE='keyboard-guardian-test')
-            program = ('from backend.session import Session; import json; '
-                       's=Session(records=' + repr([record()]) + '); '
-                       'print(json.dumps(s.begin(["us/","de/"],"both-alt",s.status()["revision"],1)))')
-            result = subprocess.run([sys.executable, '-c', program], cwd=project, env=env,
-                                    capture_output=True, text=True, timeout=15)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(listing.read_text())[0]['layout'], 'us,de')
-            journal = root / 'state/omarchy/keyboard-settings/trial.json'
-            trial = json.loads(journal.read_text())
-            self.assertEqual(trial['phase'], 'testing')
-            # The mutating parent has exited. Expire only this temporary fixture.
-            trial['deadline'] = time.time() - 1
-            journal.write_text(json.dumps(trial))
-            end = time.monotonic() + 6
-            while journal.exists() and time.monotonic() < end:
-                time.sleep(0.05)
-            self.assertFalse(journal.exists(), 'The detached guardian did not finish recovery')
-            self.assertEqual(json.loads(listing.read_text()), original)
-
 
 if __name__ == '__main__': unittest.main()

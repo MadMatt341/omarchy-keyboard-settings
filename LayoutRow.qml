@@ -10,7 +10,6 @@ Ui.Button {
     property bool marked: false
     focusable: true
     foreground: Color.popups.text
-    tooltipText: title + (subtitle ? " · " + subtitle : "")
     implicitHeight: Math.max(Style.spacing.controlHeight, lines.implicitHeight + Style.spacing.controlPaddingY * 2)
     Accessible.role: Accessible.Button
     Accessible.name: title + (subtitle ? ", " + subtitle : "") + (marked ? ", active" : "")

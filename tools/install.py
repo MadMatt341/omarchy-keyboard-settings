@@ -89,9 +89,9 @@ def run(apply=False, remove=False):
         print('Would restore the stock indicator in the current bar position and archive this plugin.')
         print('Saved keyboard overrides would be removed; your untouched input.lua would take effect again.')
         if not apply: return
+        Session(paths).recover_pending()
         with paths.lock():
             if shell.read_bytes() != before: raise SettingsError('The bar changed. Run removal again.')
-            Session(paths).no_trial()
             Session(paths).reset_saved()
             archive = paths.root / 'removed' / str(time.time_ns())
             archive.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

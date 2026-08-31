@@ -38,10 +38,13 @@ env = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software',
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('DISPLAY', None)
 result = subprocess.run(['quickshell', '-p', str(staging / 'shell.qml'), '--no-color'], env=env,
-                        capture_output=True, text=True, timeout=20)
+                        capture_output=True, text=True, timeout=45)
 log = result.stdout + result.stderr
 (root / 'work/native-render.log').write_text(log)
 print(log)
 runtime_tmp.cleanup()
-if result.returncode or any(marker not in log for marker in ('NATIVE_PREVIEW_OK', 'NATIVE_INTERACTION_OK', 'NATIVE_FLAG_OK', 'NATIVE_HELPER_PATH_OK')) or any(t in log for t in ('TypeError:', 'ReferenceError:', 'Unable to assign', 'Failed to load', 'FAIL!')):
+markers = ('NATIVE_PREVIEW_OK', 'NATIVE_INTERACTION_OK', 'NATIVE_FLAG_OK', 'NATIVE_HELPER_PATH_OK',
+           'NATIVE_TOOLTIPS_OK', 'NATIVE_SEPARATOR_OK', 'NATIVE_UNRESOLVED_OK',
+           'NATIVE_DIRECT_EDIT_OK', 'NATIVE_TEST_TOTALS')
+if result.returncode or any(marker not in log for marker in markers) or any(t in log for t in ('TypeError:', 'ReferenceError:', 'Unable to assign', 'Failed to load', 'FAIL!', 'NATIVE_TEST_FAILED')):
     raise SystemExit(1)

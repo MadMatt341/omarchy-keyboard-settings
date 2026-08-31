@@ -1,68 +1,80 @@
 # Keyboard Settings for Omarchy
 
-An independent native keyboard picker for Omarchy's Quickshell desktop. Not an official Omarchy project, a Codex plugin, or a website. Local development build; not installed by the build or tests.
+Native keyboard-layout picker for Omarchy's Quickshell bar. Replaces
+`omarchy.keyboard-layout` in its existing slot. Independent development plugin;
+not an official Omarchy project.
 
-Click the compact language label to switch. **Edit layouts…** opens a small editor with a back arrow, searchable layouts and variants, a default-at-login choice, and switching shortcut. The first layout is the login default; changing the active layout does not change it. The entry remains visible with one layout.
+- Click the language label to switch the active layout.
+- **Edit layouts…** shows a × beside each configured layout. Add a layout or variant from the installed registry, remove one with ×, or change the switching shortcut. Each edit saves immediately.
+- Saved edits take effect at the next login or reboot. The editor never replaces the live keymap; this avoids the Hyprland path that disconnected desktop applications during trial recovery.
+- The first layout is the login default; switching the active layout does not reorder it.
+- The label rolls upward into a country flag: **180 ms in, 180 ms hold, 180 ms out** into the new letters. Other layouts roll directly to their code. Set `"animate": false` on the bar entry for immediate labels; compositor animation settings are also respected.
 
-When a layout changes, a small flag briefly occupies the same slot before the letters return. Flags are decorative and shown only for country-associated layouts, using the installed color emoji font. Language labels remain authoritative. Motion follows the compositor's animation setting and can also be disabled with `"animate": false` on the bar entry.
+Test actual letters and switching after the next login. Compiled keymap checks
+cannot verify your physical keyboard.
 
-## Native by design
+The picker targets verified physical typing interfaces, preserves unrelated XKB
+options, and leaves user `input.lua` untouched. It does not configure console,
+disk-unlock, locale, mouse, keybindings or IMEs. Custom keymaps and ambiguous device
+identities can block editing rather than being guessed.
 
-- Uses Omarchy's `Ui.KeyboardPanel`, `Ui.WidgetButton`, buttons, fields, dropdowns, spacing, type, colors and borders. No copied shell fork, network service or browser runtime.
-- Replaces `omarchy.keyboard-layout` in its existing bar position. Does not display a second indicator or alter installed files.
-- Uses the installed XKB registry, including extra definitions. No inferred language, forced US fallback or automatically added Polish layout. Up to four XKB layouts; input-method engines are outside this version's scope.
-- Keyboard navigation uses Tab, arrows and Enter; Escape goes back or dismisses. Search and typing fields retain normal text input.
+The indicator remembers a verified typing interface across shell reloads in `omarchy/keyboard-settings/activity.json` under the state directory, outside the watched plugin tree. This observation record does not change keyboard settings. It is reused only within the same Hyprland session, with matching device addresses, interfaces and keymaps; the displayed layout is always read afresh. A single interface changing since the previous observation also identifies a missed switch. Multiple changes remain ambiguous. When no interface can be identified, the bar shows the reported codes together (for example `PL/EN`), and its tooltip and menu explain how to synchronize them. No arbitrary layout or interface is selected.
 
-## Changes and recovery
+Local installation and a live popup check were recorded on 2026-08-31. Physical
+typing, persistence across login and other live acceptance checks remain open.
+See the validation record in the source checkout; tests/builds do not install the plugin.
 
-Layout, variant, default and shortcut changes start a **60-second temporary typing trial**. Nothing is persisted until **Keep**. The typing field accepts real input and never stores or sends its contents. A label or compiled map is not proof that the physical keyboard works: check characters and switching before keeping a trial.
+## Development docs
 
-“Both Alt keys” uses `grp:alt_altgr_toggle`, preserving AltGr. The helper compiles candidate maps with libxkbcommon and checks base, Shift and existing AltGr levels before touching the compositor. It checks switching in both press orders. With more than two layouts, press order can select the next or previous layout. Incompatible shortcuts are refused. Existing Compose, Caps Lock and other unrelated XKB options are retained.
+These files are in the source checkout; the plugin archive includes only this README.
 
-Physical typing interfaces are grouped using sysfs metadata. Virtual keyboards, media-only devices and mouse keyboard interfaces are excluded. The compositor's `main` flag is not trusted. Ambiguity requires choosing a verified typing keyboard. Unidentifiable devices and custom keymap files fail closed instead of being guessed.
+- [AGENTS.md](AGENTS.md): implementation entry points, safety rules and checks by change type.
+- [Feature and implementation notes](docs/keyboard-settings.md): UI behavior, helper protocol, save lifecycle and owned files.
+- [VALIDATION.md](VALIDATION.md): tested environment, recorded results and remaining acceptance checks.
 
-Runtime trials target only that keyboard's verified typing interfaces. A separate guardian survives popup closure, shell reload and helper exit, and restores an expired trial. Partial failures, stale device identities and concurrent user edits are checked. An interrupted recovery retains its journal and retries when the compositor returns.
+## Local checks
 
-Trials remember the confirmed active typing layout separately from the login default. Keep and recovery synchronize the keyboard's typing interfaces to that layout, so an auxiliary interface cannot become the final, misleading bar event. When the active interface is ambiguous, choose a layout from the menu before editing.
-
-Kept settings are written atomically to plugin-owned files under `$XDG_STATE_HOME/omarchy/keyboard-settings` and `omarchy/toggles/hypr/madmatt-keyboard-settings.lua`. Your existing `input.lua` is not rewritten. Every saved change has a recovery backup. Lua reload is followed by configuration-error and device readback checks. Console, disk-unlock, system locale, keybindings, mouse and IME settings are not changed.
-
-The generated per-device override owns layout, variant and the preserved full option list. If you later want to manage those same values manually, remove the picker’s saved override through the local removal command first. Edits made later in your Lua load order can override the picker; a failed readback is not treated as success. Complex custom loaders/keymap files need manual review.
-
-## Build and check locally
-
-Dependencies are supplied by this Omarchy installation: Python 3, libxkbcommon 1.13+, xkeyboard-config, Hyprland's Lua API, Quickshell, and Omarchy's shared UI. No package installation is needed.
-
-```sh
-python -m unittest discover -s tests -v
-python tests/render_native.py
-python tools/package.py
-python tools/install.py                 # dry run only
-```
-
-The native rendering harness uses fake keyboard data, an isolated offscreen runtime and the installed shared components. It does not connect to the live desktop or install anything. Captures and test logs go in `work/`, outside the package.
-
-After reviewing and authorizing a live installation:
+Run from the repository root on an Omarchy installation with Python 3,
+libxkbcommon 1.13+, xkeyboard-config, Hyprland's Lua API, Quickshell, Qt Quick/QtTest,
+Lua and `omarchy plugin validate`. The native harness copies shared components from
+`/usr/share/omarchy/shell/{Ui,Commons}`. No pip installation is required.
 
 ```sh
-python tools/install.py --apply
+mkdir -p work
+python3 -m unittest discover -s tests -v
+python3 tests/render_native.py
+python3 tools/package.py
 ```
 
-The installer saves a receipt and bar backup. It does not change keyboard layouts on installation. It refuses duplicates, unexpected config shapes and existing installations. Restore the stock indicator and return keyboard settings to your existing Lua configuration with:
+The tests use temporary configuration and fake compositor data. The native harness
+uses an offscreen window without a live Wayland socket. Panel lifecycle checks use
+the real plugin owner/controller with a fixture replacing the layer-shell host;
+popup mapping and compositor focus still need live acceptance. Outputs:
+
+| Output | Location |
+| --- | --- |
+| UI captures and native test log | `work/native-captures/`, `work/native-render.log` |
+| Staged plugin | `work/package/madmatt.keyboard-settings/` |
+| Archive and checksum | `work/dist/keyboard-settings-0.1.0.tar.gz`, `work/dist/checksums.txt` |
+
+## Install or remove locally
+
+Keep the source checkout: the archive does not contain the installer. Commands
+without `--apply` only inspect/validate and report the proposed change.
 
 ```sh
-python tools/install.py --remove        # review first
-python tools/install.py --remove --apply
+python3 tools/install.py                 # preview installation
+python3 tools/install.py --apply         # perform an authorized installation
+python3 tools/install.py --remove        # preview removal
+python3 tools/install.py --remove --apply
 ```
 
-Removal archives the local plugin instead of deleting it and preserves unrelated bar changes. It refuses unreviewed edits to installed plugin files. Keep this source checkout for the local installer; no remote repository is needed.
+Installation backs up the bar and does not change keyboard layouts. It refuses an
+existing installation, even in dry-run mode; there is no in-place update command.
+An earlier installation backup also blocks reinstallation until reviewed.
 
-## Development status
-
-Built against Omarchy **4.0.2-1**, Hyprland **0.56.2-1**, Quickshell **0.3.1-1**, Qt **6.11.2-1**, libxkbcommon **1.13.2-1** and xkeyboard-config **2.48-1**. This supersedes the 4.0.1 environment in the initial brief.
-
-Automated tests exercise real compiled keymaps, Polish lower/uppercase AltGr characters, both Alt press orders, other languages/variants, physical-device grouping, partial failure, expiration, backup, rollback and concurrent edits. Native rendering is checked separately. Live replacement, real typing through this new picker, per-device persistence across login, focus behavior on every bar edge, IME coexistence and hotplug remain acceptance checks before calling the build production ready.
-
-The small upstream example/configuration bug should stay separate from this feature. Discuss the selector with maintainers before proposing upstream integration. Nothing has been published or submitted. Local installation is performed only when explicitly authorized.
-
-References: [Omarchy shell plugins](https://github.com/omacom/omarchy/blob/quattro/manual/32-shell-plugins.md), [Hyprland device configuration](https://wiki.hypr.land/configuring/core/devices/), [Hyprland control interface](https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/). The community keyboard-languages preview informed the initial discussion; its plugin was not installed or copied.
+Removal restores the stock indicator in the current slot, archives the plugin and
+removes its saved keyboard override so the existing Lua configuration takes effect.
+It preserves unrelated bar edits and refuses modified installed files or a pending
+file transaction. Removing the override also returns ownership of its layout/variant/options
+to your manual configuration; review load order before managing those values elsewhere.

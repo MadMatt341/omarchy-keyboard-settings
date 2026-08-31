@@ -2,9 +2,17 @@
 
 Validated on 2026-08-31. Installed locally with the user's authorization. This is still a development build, not a production-certified release.
 
+Recorded environment: Omarchy **4.0.2-1**, Hyprland **0.56.2-1**, Quickshell
+**0.3.1-1**, Qt **6.11.2-1**, libxkbcommon **1.13.2-1**, xkeyboard-config **2.48-1**.
+These are the tested versions, not a claim of compatibility with every release.
+Commands are in [README.md](README.md); behavior and implementation contracts are in
+[docs/keyboard-settings.md](docs/keyboard-settings.md).
+
+## Initial installation record
+
 | Check | Result |
 | --- | --- |
-| Python backend and integration suite | 33 passed |
+| Python backend and integration suite | 45 passed, including 12 active-interface cache regressions |
 | Polish AltGr letters | `ąćęłńóśźż` and uppercase equivalents verified with real libxkbcommon |
 | Known broken shortcut | `grp:alts_toggle` rejected for the Polish test map |
 | Both Alt keys | Safe option verified with either press order and both US/PL directions |
@@ -13,7 +21,7 @@ Validated on 2026-08-31. Installed locally with the user's authorization. This i
 | Device selection | Mouse exposing a full keyboard, virtual/main interfaces, multiple typing interfaces, ambiguity and replacement tested with fixtures |
 | Temporary changes | Expiration, partial apply failure, failed reload, stale revisions, concurrent edits and interrupted commits tested |
 | Detached recovery | Real guardian process restored an isolated fixture after its mutating parent exited |
-| Native rendering | Five screens captured using the installed Omarchy components |
+| Native rendering | Five screens plus ambiguous-layout popup and indicator captures using installed Omarchy components |
 | Native interaction | Tab/Enter/Escape navigation and normal search text tested |
 | Bar feedback | Same-width flag/label transition and disabled animations tested |
 | QML checks | Passed; dynamic shared QtObject property and unqualified-access warnings excluded, with native rendering checked separately |
@@ -23,6 +31,23 @@ Validated on 2026-08-31. Installed locally with the user's authorization. This i
 | Live native popup | Opened through the shell's normal route and visually checked on the active top bar |
 | Existing input configuration | User Lua file hashes unchanged; no layout, variant, Compose or Caps Lock configuration edits |
 | Installation edge cases | Padded audio-device names excluded correctly; helper cannot create bytecode caches in the watched plugin folder |
+| Layout reporting after reload | Verified source survives a new backend instance; current index is read afresh; changed session, device addresses or keymaps invalidate old evidence |
+| Missed layout events | A single changed interface is recovered from observations; multiple changed interfaces remain explicitly ambiguous |
+| Unknown layout feedback | Combined reported codes and explanatory tooltip/menu verified in native QML; missing data shows `?` |
+
+The layout-reporting fix was installed at 22:54 on 2026-08-31, updating only
+`Backend.qml`, `Indicator.qml` and `backend/session.py`. Installed files and the
+installation receipt were backed up under
+`~/.local/state/omarchy/keyboard-settings/updates/layout-reporting-1788209657828656100/`.
+Hashes of `input.lua`, `shell.json`, the saved profile and owned override were
+unchanged during deployment. The installed receipt matches the updated files.
+The live indicator showed `DA` after installation and `PL` after a full shell
+restart at 22:56, as the desktop's layout state changed during this work. No
+layout-switch or keyboard-configuration commands were issued by this fix. The
+shell logged no QML type/reference/loading errors for the update or restart.
+Captures are `work/layout-reporting-live.png` and
+`work/layout-reporting-after-restart.png`; isolated regression tests, rather than
+the live screenshot alone, verify source retention with divergent interfaces.
 
 The packaged preview screenshots use fixture data. The rendering harness has no live Wayland socket. The live popup has now also been visually checked, but physical typing through the new picker, kept-setting persistence across login, other bar edges and real compositor rollback still need acceptance checks before treating this build as ready for daily use.
 
@@ -31,3 +56,128 @@ The independent plugin was installed in user configuration only. No keyboard con
 The saved per-device override preserves the current complete XKB option list. It becomes the owner of those per-device values; remove that override before managing the same options manually elsewhere. Custom keymap files, unidentifiable devices and complex custom loaders are refused or require review.
 
 The source checkout includes the dry-run installer and reversible removal tool. The `.tar.gz` contains the validated plugin directory only. Keep the checkout for local installation and recovery.
+
+## Source checkout recheck — 2026-08-31
+
+During documentation work, checked the working tree based on `9ca2573`, including
+the concurrent active-interface cache and menu UI changes. This was an offline
+source check, not a new installation or live acceptance run.
+
+| Check | Result |
+| --- | --- |
+| `python3 -m unittest discover -s tests -v` | 45 passed, including 12 active-interface cache tests. |
+| `python3 tests/render_native.py` | Five captures and all seven harness success markers, including menu tooltips, separator and unresolved layout reporting. |
+| `python3 tools/package.py` | Archive built; Omarchy plugin validation passed. |
+| Documentation | Local links, implementation paths, code fences and whitespace checked. |
+
+## Indicator roll update — 2026-08-31
+
+Implemented and installed the approved upward roll: **180 ms entrance, 180 ms
+fully visible flag, 180 ms return**. The outgoing glyph is frozen; rapid switches
+replace unfinished feedback. Unresolved state and disabled motion settle directly
+on the current code. Valid layouts without flags roll straight to their code.
+
+- Existing native UI harness passed, including stable flag sizing, disabled
+  motion, unresolved codes, tooltips, separator and keyboard navigation.
+- Dedicated offscreen captures show entrance, hold, exit and settled frames;
+  rapid switching finishes on the latest layout, and disabling motion or losing
+  layout data cancels the old feedback. Evidence: `work/roll-captures/` and
+  `work/roll-render.log`. These use fake data, not the live typing keyboard.
+- QML lint passed with the existing shared dynamic-property/unqualified-access
+  exclusions. Package build and Omarchy plugin validation passed.
+- Only installed `Indicator.qml` was replaced; its installation receipt was
+  updated and verified against all installed files. The source and installed
+  indicator match. Keyboard settings and other installed plugin files were unchanged.
+- The live shell logged the local plugin reload at **23:00:57 Europe/Warsaw**,
+  answered its IPC ping, and reported this widget enabled with the stock widget
+  disabled. No new shell error appeared in that reload's journal output.
+
+The previous indicator and receipt are retained in
+`~/.local/state/omarchy/keyboard-settings/updates/indicator-roll-1788210057195290115/`.
+This update does not close the physical-typing acceptance items below.
+
+Follow-up: the user still observed the old feedback after the hot-reload message.
+At their request, `omarchy restart shell` was run at **23:05:32 Europe/Warsaw**.
+A fresh shell process (PID 78541) loaded its configuration and answered IPC. The
+installed indicator still matches the validated source. The earlier hot-reload
+message alone did not establish that the running indicator used the new animation.
+The user confirmed that the full shell restart resolved the old-animation behavior.
+
+## Trial dismissal and reopening — 2026-08-31
+
+This candidate was installed at 23:11, rejected after its first live acceptance
+test exposed the recovery incident below, and rolled back. The table records the
+offline evidence for the rejected candidate; it is not the current behavior.
+
+| Check | Result |
+| --- | --- |
+| Python backend/integration suite | 45 passed; existing guardian, rollback, active-layout and installer fixtures remain green. |
+| Native QtTest | Reported 27 passed, 0 failed in `work/native-render.log`. |
+| Trial exits | Escape/outside close restore the previous active layout before dismissing; Back/Revert restore and return to the editor; Keep returns to the picker; expiry restores without dismissal. |
+| Concurrent UI actions | Close during begin/switch waits, then reverts once. Close during Keep does not undo an accepted save. Reopening the panel owner selects the first picker page. |
+| Failure handling | Failed recovery remains on the trial page and can be retried. Real QML backend with a delayed fixture helper ignores stale queries and stays busy across failed post-action readback. |
+| Panel lifecycle | Outside close delegation, bar toggle and panel handoff checked through the real `Keyboard.qml` owner and shared `Ui.Panel` controller, using an offscreen fixture for the layer-shell host. |
+| Visual inspection | Trial, picker and editor captures checked; controls/text fit and the native layout is unchanged. |
+| Distribution | `python3 tools/package.py` built the archive and passed Omarchy's plugin validator; test fixtures are not included in the plugin. |
+
+The offline host could not prove layer-shell mapping, real outside clicks/focus,
+or physical keyboard restoration. The first live Escape/recovery check failed
+catastrophically, so the candidate must not be restored.
+
+## Live keymap recovery incident — 2026-08-31
+
+The trial-dismissal UI was installed at 23:11 and rolled back after two live
+Escape/recovery attempts disconnected desktop clients. At 23:13:13 and 23:13:52,
+the system journal recorded repeated `error marshalling arguments for keymap: dup
+failed: Bad file descriptor`, immediately followed by client communication errors
+and Omarchy Shell losing its Wayland connection. ChatGPT/Chromium exited shortly
+afterward. The shell supervisor relaunched Quickshell with status 255.
+
+No coredump or OOM event was present; 10 GiB memory remained available. This
+evidence points to Hyprland's live per-device keymap replacement/recovery path,
+not QML parsing, the popup close itself, or memory pressure. The exact upstream
+defect remains unproven. The installed UI rollback matches its saved receipt.
+
+The trial UI and its `begin`/`keep`/`revert`/guardian helper actions have now been
+removed from the replacement candidate. Existing-layout switching remains
+available because it uses `switchxkblayout`; the crashing live keymap replacement
+and recovery interface is no longer reachable.
+
+## Direct editor replacement — 2026-08-31
+
+The replacement editor lists each saved layout with a × remove button and saves a
+selected Add-layout result immediately. Shortcut edits use the same save action.
+There is no trial, timer, typing field, Keep, Revert, compositor reload, or live
+`hl.device` evaluation. Saved edits are explicitly marked as pending until the
+next login or reboot.
+
+| Check | Result |
+| --- | --- |
+| Backend/integration suite | 36 passed. Save validation, stale revisions, interrupted two-file recovery, external-edit preservation, deferred state and runtime switching are covered. |
+| Native QtTest | 11 passed, 0 failed. Picker/editor/search/devices navigation, × removal, pending-restart notice, separator, tooltips and unresolved state passed. |
+| Visual inspection | `editor.png` shows × controls beside both layouts; `editor-saved.png` shows the remaining layout and restart notice without clipping. |
+| Runtime mutation boundary | The save tests record zero compositor apply/reload/switch calls. `Hyprland.apply()` and the helper's trial actions are absent. |
+| Distribution | `python3 tools/package.py` built the archive and passed Omarchy's validator; removed trial fixtures are absent. |
+
+Installed at **23:56 Europe/Warsaw** without a shell restart or keyboard command.
+The installed helper exposes the 104-layout catalog and all five updated runtime
+files match the validated source. The full installed tree matches its updated
+receipt; no legacy trial or file transaction exists. Hashes of `input.lua`,
+`shell.json`, the saved profile and the owned override remained unchanged. The
+previous runtime files and receipt are backed up under
+`~/.local/state/omarchy/keyboard-settings/updates/direct-editor-1788213371173597848/`.
+A clean full-system reboot remains pending because the existing Wayland session
+had already suffered repeated client disconnects before this deployment.
+
+## Remaining live acceptance checks
+
+Record the tested source revision, environment and observed result before checking
+an item off. The checks below can change live keyboard settings; run them only
+within an authorized live-testing task.
+
+- [ ] After a login applies a saved edit, type Polish `ąćęłńóśźż` and uppercase equivalents and verify switching in both Alt press orders.
+- [ ] Confirm an added/removed layout and shortcut take effect after login while the first saved layout remains the default.
+- [ ] Confirm closing the editor with Escape performs no keyboard or recovery action.
+- [ ] Check popup bounds, focus, Tab/arrows/Enter/Escape and text entry on every bar edge and with the user's scaling.
+- [ ] Check unplug/replug and replacement keyboards without applying stale state to a different device.
+- [ ] Check coexistence with the user's IME, if present. The picker does not manage IME engines.

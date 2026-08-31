@@ -12,7 +12,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.catalog import Catalog, SettingsError, SHORTCUTS
-from backend.session import Session, guard
+from backend.session import Session
 
 
 def main():
@@ -20,26 +20,19 @@ def main():
     request = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
     if not isinstance(request, dict):
         raise SettingsError("Invalid request.")
-    if action == "guard":
-        guard(request["token"], request["readyFd"])
-        return
     if action == "catalog":
         data = {"layouts": Catalog().layouts, "shortcuts": [{"value": k, "label": v[0]} for k, v in SHORTCUTS.items()]}
     else:
         session = Session()
-        session.recover_expired()
+        session.recover_pending()
         if action == "status":
             data = session.status(request.get("eventDevice", ""))
         elif action == "choose":
             data = session.choose(request["device"], request["revision"])
         elif action == "switch":
             data = session.switch(request["index"], request["revision"])
-        elif action == "begin":
-            data = session.begin(request["layouts"], request["shortcut"], request["revision"], request.get("testIndex", 0), request.get("eventDevice", ""))
-        elif action == "keep":
-            data = session.keep(request["token"], request.get("eventDevice", ""))
-        elif action == "revert":
-            data = session.revert(request["token"])
+        elif action == "save":
+            data = session.save(request["layouts"], request["shortcut"], request["revision"], request.get("eventDevice", ""))
         else:
             raise SettingsError("Unknown request.")
     print(json.dumps({"ok": True, "data": data}, ensure_ascii=False))

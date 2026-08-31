@@ -5,7 +5,7 @@ import Quickshell.Hyprland
 
 QtObject {
     id: root
-    property var state: ({layouts: [], active: -1, devices: [], device: "", revision: "", trial: null, problem: ""})
+    property var state: ({layouts: [], configuredLayouts: [], active: -1, devices: [], device: "", revision: "", problem: "", pendingRestart: false})
     property var catalog: []
     property var shortcuts: []
     property string error: ""
@@ -22,6 +22,9 @@ QtObject {
         if (query.running || action.running) { pending = true; return }
         pending = false
         query.command = ["python3", helper, "status", JSON.stringify({eventDevice: eventDevice})]
+        // The helper persists a verified source across shell reloads. Send an
+        // event once; resending an old name would override a later observation.
+        eventDevice = ""
         query.running = true
     }
     function request(name, args) {
@@ -34,11 +37,7 @@ QtObject {
         action.running = true
     }
     function switchTo(index) { request("switch", {index: index}) }
-    function begin(ids, shortcut, testIndex) {
-        request("begin", {layouts: ids, shortcut: shortcut, testIndex: testIndex || 0})
-    }
-    function keep() { if (state.trial) request("keep", {token: state.trial.token}) }
-    function revert() { if (state.trial) request("revert", {token: state.trial.token}) }
+    function save(ids, shortcut) { request("save", {layouts: ids, shortcut: shortcut}) }
     function reply(text) {
         try {
             let value = JSON.parse(text)
@@ -67,7 +66,7 @@ QtObject {
             onStreamFinished: {
                 let value = root.reply(text)
                 if (value.ok) root.state = value.data
-                else root.state = Object.assign({}, root.state, {active: -1, revision: ""})
+                else root.state = Object.assign({}, root.state, {active: -1, activeLayouts: [], revision: ""})
             }
         }
         onRunningChanged: if (!running && root.pending) Qt.callLater(root.refresh)
@@ -93,7 +92,7 @@ QtObject {
         onRunningChanged: if (!running) Qt.callLater(root.refresh)
     }
     property Timer polling: Timer {
-        interval: root.state.trial ? 1000 : 10000
+        interval: 10000
         running: true
         repeat: true
         onTriggered: root.refresh()
@@ -106,7 +105,9 @@ QtObject {
             if (event.name === "activelayout") {
                 let parts = event.parse ? event.parse(2) : String(event.data || "").split(",")
                 let name = String(parts[0] || "")
-                if ((root.state.deviceNames || []).indexOf(name) >= 0) root.eventDevice = name
+                // The first event can precede the initial device query. The
+                // helper validates membership against its fresh device list.
+                if (name && (!root.state.revision || (root.state.deviceNames || []).indexOf(name) >= 0)) root.eventDevice = name
                 root.eventRefresh.restart()
             } else if (event.name === "configreloaded") {
                 root.eventDevice = ""
