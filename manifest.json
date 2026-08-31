@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "madmatt.keyboard-settings",
+  "name": "Keyboard Settings",
+  "version": "0.1.0",
+  "author": "Keyboard Settings for Omarchy contributors",
+  "description": "A minimal keyboard layout picker with character-preserving shortcuts",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Keyboard.qml"},
+  "barWidget": {
+    "displayName": "Keyboard Settings",
+    "description": "Keyboard layouts, variants and switching",
+    "category": "Compositor",
+    "defaultSection": "center",
+    "allowMultiple": false
+  }
+}
