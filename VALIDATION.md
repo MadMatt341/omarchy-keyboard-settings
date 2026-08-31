@@ -1,10 +1,10 @@
-# Local build validation — 0.1.0
+# Build and live installation validation — 0.1.0
 
-Validated on 2026-08-31. This is a native development build, not a live-installed or production-certified release.
+Validated on 2026-08-31. Installed locally with the user's authorization. This is still a development build, not a production-certified release.
 
 | Check | Result |
 | --- | --- |
-| Python backend and integration suite | 31 passed |
+| Python backend and integration suite | 33 passed |
 | Polish AltGr letters | `ąćęłńóśźż` and uppercase equivalents verified with real libxkbcommon |
 | Known broken shortcut | `grp:alts_toggle` rejected for the Polish test map |
 | Both Alt keys | Safe option verified with either press order and both US/PL directions |
@@ -19,10 +19,14 @@ Validated on 2026-08-31. This is a native development build, not a live-installe
 | QML checks | Passed; dynamic shared QtObject property and unqualified-access warnings excluded, with native rendering checked separately |
 | Omarchy plugin validator | Passed against the clean package |
 | Installer | Dry run passed against the existing bar; complete install/archive-removal round trip passed in a temporary fixture home |
+| Live installation | Replacement enabled in the original slot; stock indicator disabled; original bar settings backed up |
+| Live native popup | Opened through the shell's normal route and visually checked on the active top bar |
+| Existing input configuration | User Lua file hashes unchanged; no layout, variant, Compose or Caps Lock configuration edits |
+| Installation edge cases | Padded audio-device names excluded correctly; helper cannot create bytecode caches in the watched plugin folder |
 
-The native screenshots use fixture data. The rendering harness has no live Wayland socket. It does not test the shared popup’s real layer-shell positioning/focus, hardware key delivery, login persistence or real compositor reload behavior. Those need an authorized live acceptance trial before treating this build as ready for daily use.
+The packaged preview screenshots use fixture data. The rendering harness has no live Wayland socket. The live popup has now also been visually checked, but physical typing through the new picker, kept-setting persistence across login, other bar edges and real compositor rollback still need acceptance checks before treating this build as ready for daily use.
 
-No plugin was installed. No active keyboard configuration, packaged Omarchy files, console, locale or input-method settings were changed. No repository, issue, comment or PR was published.
+The independent plugin was installed in user configuration only. No keyboard configuration, packaged Omarchy files, console, locale or input-method settings were changed. No repository, issue, comment or PR was published. The user has been asked to test real Polish AltGr characters and both-Alt switching; software-generated text is not evidence of physical typing.
 
 The saved per-device override preserves the current complete XKB option list. It becomes the owner of those per-device values; remove that override before managing the same options manually elsewhere. Custom keymap files, unidentifiable devices and complex custom loaders are refused or require review.
 

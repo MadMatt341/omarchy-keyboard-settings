@@ -58,6 +58,18 @@ class InstallTests(unittest.TestCase):
 
 
 class GuardianIntegration(unittest.TestCase):
+    def test_helper_does_not_write_into_the_watched_plugin_tree(self):
+        project = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='keyboard-cache-') as directory:
+            root = Path(directory)
+            shutil.copytree(project / 'backend', root / 'backend', ignore=shutil.ignore_patterns('__pycache__'))
+            before = sorted(str(p.relative_to(root)) for p in root.rglob('*'))
+            result = subprocess.run([sys.executable, str(root / 'backend/keyboard_settings.py'), 'catalog'],
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json.loads(result.stdout)['ok'])
+            self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob('*')), before)
+
     def test_guardian_recovers_after_parent_exits(self):
         project = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix='keyboard-guardian-') as directory:

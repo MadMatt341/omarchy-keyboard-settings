@@ -25,7 +25,9 @@ def metadata(directory=Path("/sys/class/input")):
     for event in sorted(directory.glob("event*"), key=lambda p: int(p.name[5:])):
         base = event / "device"
         try:
-            name = (base / "name").read_text().strip()
+            # Spaces belong to the device name; Hyprland turns them into '-'.
+            # Only strip sysfs's terminating newline, including for media devices.
+            name = (base / "name").read_text().rstrip("\n")
             physical = (base / "phys").read_text().strip()
             keys = bits((base / "capabilities/key").read_text())
             rel = bits((base / "capabilities/rel").read_text()) if (base / "capabilities/rel").exists() else 0

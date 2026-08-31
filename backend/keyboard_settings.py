@@ -4,6 +4,10 @@ from pathlib import Path
 import json
 import sys
 
+# Omarchy watches the plugin tree for changes. Runtime bytecode caches would
+# look like source edits and repeatedly reload the shell when the helper runs.
+sys.dont_write_bytecode = True
+
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

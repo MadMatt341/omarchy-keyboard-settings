@@ -63,6 +63,6 @@ Built against Omarchy **4.0.2-1**, Hyprland **0.56.2-1**, Quickshell **0.3.1-1**
 
 Automated tests exercise real compiled keymaps, Polish lower/uppercase AltGr characters, both Alt press orders, other languages/variants, physical-device grouping, partial failure, expiration, backup, rollback and concurrent edits. Native rendering is checked separately. Live replacement, real typing through this new picker, per-device persistence across login, focus behavior on every bar edge, IME coexistence and hotplug remain acceptance checks before calling the build production ready.
 
-The small upstream example/configuration bug should stay separate from this feature. Discuss the selector with maintainers before proposing upstream integration. Nothing has been published, installed or submitted by this project.
+The small upstream example/configuration bug should stay separate from this feature. Discuss the selector with maintainers before proposing upstream integration. Nothing has been published or submitted. Local installation is performed only when explicitly authorized.
 
 References: [Omarchy shell plugins](https://github.com/omacom/omarchy/blob/quattro/manual/32-shell-plugins.md), [Hyprland device configuration](https://wiki.hypr.land/configuring/core/devices/), [Hyprland control interface](https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/). The community keyboard-languages preview informed the initial discussion; its plugin was not installed or copied.

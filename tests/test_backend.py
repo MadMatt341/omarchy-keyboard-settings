@@ -8,7 +8,7 @@ import unittest
 
 from backend.catalog import Catalog, SettingsError
 from backend.keymap import Keymap, validate
-from backend.devices import resolve, pick, active_index, bits
+from backend.devices import resolve, pick, active_index, bits, metadata, normalized
 from backend.session import Session, Paths, config_of, lua_string, equivalent
 from backend.session import atomic, encoded
 import base64
@@ -72,6 +72,20 @@ class KeymapTests(unittest.TestCase):
 
 
 class DeviceTests(unittest.TestCase):
+    def test_padded_media_device_name_is_recognized_and_excluded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / 'event0/device'
+            (base / 'capabilities').mkdir(parents=True)
+            name = 'USB Audio DAC   '
+            (base / 'name').write_text(name + '\n')
+            (base / 'phys').write_text('usb-audio/input2\n')
+            (base / 'capabilities/key').write_text('0 8000000000000 0\n')
+            records = metadata(Path(folder))
+            self.assertEqual(records[0]['name'], normalized(name))
+            groups, excluded = resolve({'keyboards': [keyboard(normalized(name))]}, records)
+            self.assertEqual(groups, [])
+            self.assertEqual(excluded, [normalized(name)])
+
     def test_mouse_with_full_keyboard_and_virtual_main_are_excluded(self):
         records = [record(), record('typing-keyboard-aux'), record('mouse-keyboard', 'usb-mouse')]
         records[-1]['primary'] = False
