@@ -298,8 +298,8 @@ Record the tested source revision, environment and observed result before checki
 an item off. The checks below can change live keyboard settings; run them only
 within an authorized live-testing task.
 
-- [ ] After a login applies a saved edit, type Polish `ąćęłńóśźż` and uppercase equivalents and verify switching in both Alt press orders.
-- [ ] Confirm an added/removed layout, changed default and shortcut take effect after login; verify the chosen first layout and resulting shortcut cycle order.
+- [x] After a login applies a saved edit, type Polish `ąćęłńóśźż` and uppercase equivalents and verify switching in both Alt press orders.
+- [x] Confirm an added/removed layout, changed default and shortcut take effect after login; verify the chosen first layout and resulting shortcut cycle order.
 - [ ] Confirm Escape closes from picker/editor/search/devices, reopening starts at the picker, and dismissal performs no keyboard or recovery action.
 - [ ] Check popup bounds, focus, Tab/arrows/Enter/Escape and text entry on every bar edge and with the user's scaling.
 - [ ] Check unplug/replug and replacement keyboards without applying stale state to a different device.
@@ -470,3 +470,35 @@ Omarchy 4.0.2 and Hyprland 0.56.2 environment. Publication remains NO-GO** until
 physical Polish typing and both Alt press orders, the remaining live popup/device
 checks, another-account lifecycle, private beta, CI and marketplace checks are
 complete. No repository push, tag, release or marketplace submission occurred.
+
+## Physical typing and profile restoration — 2026-09-01
+
+With the applied `Polish, US / both Alt` candidate, the user physically verified
+both shortcut press orders: left Alt followed by right Alt selected US, and right
+Alt followed by left Alt returned to Polish. They then typed lowercase
+`ąćęłńóśźż` and the uppercase equivalents successfully without paste or synthetic
+input. This closes the physical Polish AltGr and shortcut-order gate.
+
+The pre-acceptance `US, Polish, Danish / both Alt` profile was then staged through
+the helper. Readback showed the saved profile restored, the temporary Polish/US
+runtime unchanged and `pendingRestart: true`. After a final full reboot, runtime
+and saved layouts both reported `US, Polish, Danish`, `pendingRestart` was false,
+and the user confirmed the indicator initially showed EN/US before they manually
+changed it to Polish. The active file became the exact pre-reboot pending file;
+pending, loader, shell configuration and activation receipt remained unchanged.
+Redacted evidence is in `pre-restore-reboot.json` and `post-restore-reboot.json`
+under `work/live-acceptance/e49a549/`.
+
+The physical shortcut changed only the keyboard interface that emitted the chord,
+leaving the auxiliary interface on US. A controlled plugin switch from Polish to
+Danish and back to Polish synchronized both verified interfaces at index one,
+with the JSON profile, loader and bar configuration unchanged. This confirms the
+documented active-interface tracking and multi-interface runtime synchronization
+paths while leaving the user's original saved and active profile restored.
+
+**Current verdict: deferred login, changed layout/default, physical Polish typing,
+both shortcut press orders and original-profile restoration pass. Publication
+remains NO-GO** until the remaining popup/focus/bar-edge checks, device replacement
+and applicable IME check, another-account lifecycle, private beta, executed CI and
+marketplace checks are complete. No repository push, tag, release or marketplace
+submission occurred.
