@@ -578,3 +578,25 @@ pending manual confirmation that the real popup refreshes its main and editor ro
 plus the remaining bar-edge/scale, keyboard replacement, applicable IME,
 another-account lifecycle, private beta, CI and marketplace gates. No repository
 push, tag, release or marketplace submission occurred.
+
+### Parked live removal regressions — 2026-09-02
+
+Subsequent manual popup use found two release-blocking removal regressions that
+supersede the removal conclusion above until they are reproduced and corrected:
+
+- removing the currently selected layout causes a disruptive visible/runtime
+  transition, despite the backend transaction's successful isolated acceptance;
+- the live UI can reach a crash after removal of the last layout, even though the
+  editor guard and helper contract are intended to preserve at least one layout.
+
+The active-layout path should be investigated as an ordering problem: switch every
+verified typing interface to a surviving layout and confirm that switch before
+removing the selected layout from the live keymap. The final-layout path must be
+blocked in both the UI and helper regardless of stale UI state, rapid actions or
+delayed readback. Existing fixture coverage for a disabled final remove button is
+not sufficient evidence for either live path.
+
+**Current verdict: NO-GO for publication.** Reproduce both failures through the
+real popup, add regression coverage for their actual cause, verify the corrected
+ordering and final-layout invariant live, and restore the intended keyboard profile
+before reconsidering the removal gate.
