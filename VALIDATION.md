@@ -349,3 +349,45 @@ along with physical Polish typing and both Alt press orders, manual popup behavi
 on every bar edge/scale, device replacement, IME coexistence, another-account
 lifecycle, private beta, CI and marketplace checks. No repository push, tag,
 release or marketplace submission occurred.
+
+## First reboot acceptance and session-bound correction — 2026-09-01
+
+The first full-system reboot disproved the shutdown-promotion assumption above.
+Before reboot, the live runtime remained `US, Polish, Danish` while the saved
+candidate was `Polish, US`; `pendingRestart` was true. After reboot, the helper
+still reported the old three-layout runtime with Polish active, the two-layout
+saved candidate and `pendingRestart: true`. The valid `active-v1.conf` remained
+the two-interface, three-layout file written before staging, while the valid
+`pending-v1.conf` remained the two-interface, two-layout file written before
+reboot. Both modes were `0600`, the files differed, the plugin was enabled, the
+stock indicator was disabled and `hyprctl configerrors` was empty. The preceding
+boot journal contained no loader or Lua error. This is a release blocker: a normal
+Omarchy system reboot did not reliably emit or complete `hyprland.shutdown`.
+
+Commit `d4ca57c2cd0b5b9b7b004cf76e248ad9e8e63f14` removes that dependency under
+release-input fingerprint
+`b3297a1accbfc11e27f61746dd06bd7569133eebb924d955d53a5ff938e77d17`.
+Hyprland 0.56.2 creates and exports a unique `HYPRLAND_INSTANCE_SIGNATURE` before
+initializing the Lua config manager. Pending data now records the saving instance.
+Same-instance config reloads keep active data; the first config parse in another
+instance validates and atomically promotes different pending rows before
+registering `hl.device` declarations. The Omarchy shell process was checked
+without revealing the value: it had a 61-character signature and helper processes
+inherited the same value. Re-running `tools/plugin.py activate --apply` with an
+existing receipt now upgrades an older loader/data format while preserving the
+bar, receipt and distinct active/pending rows; it rebinds a pending edit to the
+refreshing session before the watched loader changes.
+
+| Corrected gate | Result |
+| --- | --- |
+| Python backend/integration | **51 passed**. The real Lua loader harness proves two same-session loads retain active rows, a different session promotes pending rows before device declarations, and the promoted file is `0600`. Integration coverage proves an update-time loader refresh preserves the receipt, shell config and a pending edit while migrating mixed old/current data formats. |
+| Performance | Passed: catalog cold p95 123.5 ms, warm p95 78.7 ms, one-layout save p95 19.2 ms, four-layout save p95 69.7 ms, search p95 0.055 ms and five-minute-equivalent idle cost 0.375% of one core. |
+| Native UI | **15 passed, 0 failed**; the dedicated last-layout × disabled assertion is included. Search p95 was 12 ms, 200-refresh storm 203 ms, RSS growth 52 KiB, no file-descriptor growth and no orphan helper. |
+| Distribution | Fresh `0.1.0` archive build and Omarchy validation passed; `git diff --check` passed. |
+| Source basis | Installed Hyprland was **0.56.2**. Its tagged source sets the instance signature before `Config::mgr()->init()`, so the identifier is available during the initial Lua parse as required. |
+
+**Current verdict: GO for offline validation of the session-bound correction;
+NO-GO for publication.** The installed checkout still needs the exact commit and
+idempotent loader refresh, followed by another clean-login/reboot acceptance.
+Physical Polish typing and the remaining manual/system acceptance items are still
+open. No repository push, tag, release or marketplace submission occurred.
