@@ -15,7 +15,8 @@ from tools.diagnostics import collect as diagnostics
 from tools.plugin import activate, prepare_remove
 from tools.package_support import archive_tree, runtime_files, stage
 from backend.catalog import SettingsError
-from backend.deferred import LOADER, parse as parse_deferred
+from backend.deferred import (DATA_HEADER, DATA_HEADER_V1, LOADER, MARKER,
+                              parse as parse_deferred, render_rows, saved_session)
 from backend.session import Session
 
 
@@ -138,7 +139,8 @@ class GitLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             target, shell, original = self.fixture(root)
-            env = {'XDG_CONFIG_HOME': str(root / '.config'), 'XDG_STATE_HOME': str(root / '.local/state')}
+            env = {'XDG_CONFIG_HOME': str(root / '.config'), 'XDG_STATE_HOME': str(root / '.local/state'),
+                   'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}
             with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
                 activate(False, target)
                 self.assertEqual(json.loads(shell.read_text()), original)
@@ -159,6 +161,30 @@ class GitLifecycleTests(unittest.TestCase):
                 self.assertEqual(loader.read_bytes(), LOADER)
                 self.assertEqual(parse_deferred(active_data.read_bytes()), [])
                 self.assertEqual(parse_deferred(pending_data.read_bytes()), [])
+                # Updating the checkout does not remove the external receipt.
+                # Re-running activation upgrades an older static loader and both
+                # data formats while preserving a pending edit and the bar.
+                active_rows = [{'name': 'typing-one', 'layout': 'us,pl', 'variant': ',', 'options': 'grp:alt_altgr_toggle'}]
+                pending_rows = [{'name': 'typing-one', 'layout': 'pl,us', 'variant': ',', 'options': 'grp:alt_altgr_toggle'}]
+
+                def legacy(rows):
+                    current = render_rows(rows, 'session-a').splitlines()
+                    return DATA_HEADER_V1 + b'\n'.join(current[2:]) + b'\n'
+
+                loader.write_bytes(MARKER.encode() + b'-- previous static loader\n')
+                active_data.write_bytes(legacy(active_rows))
+                pending_data.write_bytes(render_rows(pending_rows, 'session-old'))
+                receipt_before, shell_before = receipt.read_bytes(), shell.read_bytes()
+                activate(False, target)
+                activate(True, target)
+                self.assertEqual(loader.read_bytes(), LOADER)
+                self.assertTrue(active_data.read_bytes().startswith(DATA_HEADER))
+                self.assertTrue(pending_data.read_bytes().startswith(DATA_HEADER))
+                self.assertEqual(parse_deferred(active_data.read_bytes()), active_rows)
+                self.assertEqual(parse_deferred(pending_data.read_bytes()), pending_rows)
+                self.assertEqual(saved_session(pending_data.read_bytes()), 'session-a')
+                self.assertEqual(receipt.read_bytes(), receipt_before)
+                self.assertEqual(shell.read_bytes(), shell_before)
                 active['idle']['lock'] = 900
                 shell.write_text(json.dumps(active))
                 # Omarchy updates the checkout in place; lifecycle state must

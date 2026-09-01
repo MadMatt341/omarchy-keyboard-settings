@@ -37,12 +37,15 @@ Updates use:
 
 ```sh
 omarchy plugin update madmatt.keyboard-settings
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
 ```
 
 The updater fast-forwards from the repository's default branch. It does not use a
 GitHub Release or manifest version as a pin, so every default-branch commit is a
 potential user update. Promote only fully checked candidates to that branch and
-do not rewrite published history. See Omarchy's
+do not rewrite published history. Re-running activation preserves the existing
+receipt, bar placement and saved settings while refreshing a versioned loader or
+data format. See Omarchy's
 [update implementation](https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-plugin-update).
 
 Removal must run the plugin's explicit cleanup first because Omarchy does not call
@@ -66,7 +69,7 @@ remove it again. See the exact user and migration flows in
 | --- | --- |
 | Plugin contract | Root `manifest.json`, stable ID `madmatt.keyboard-settings`, root `Keyboard.qml` entry point and native-only runtime. |
 | Git lifecycle | Dry-run activation and preparation for removal, external receipt/backups, retained-settings option, generic-disable repair and copied-install migration. |
-| Safety | Deferred validated saves use inert pending data, a fixed loader and shutdown-only promotion, with readback, atomic recovery, bounded locking, no raw input or live layout-set replacement. |
+| Safety | Deferred validated saves use inert session-bound pending data and a fixed loader that promotes only in a different compositor session, with readback, atomic recovery, bounded locking, no raw input or live layout-set replacement. |
 | Performance | Source-hashed XKB catalog cache outside the watched checkout, event-query coalescing and offline latency budgets. |
 | Packaging | Manifest-derived version/file selection, empty stage, Omarchy validation, normalized deterministic archive and checksum. |
 | Rights/support | MIT license, support guide, private security-report route and privacy-safe diagnostics. No third-party code or media is bundled. |

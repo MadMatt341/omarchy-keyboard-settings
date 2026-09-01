@@ -43,8 +43,9 @@ packages, downloads or web services at runtime.
 
 Your Hyprland Lua configuration must load `default.hypr.toggles`. Activation
 installs one fixed, plugin-owned Lua loader. Saves update only inert pending data;
-the loader promotes it as Hyprland shuts down and the next session reads it. The
-plugin never rewrites your `input.lua`.
+the loader records the saving compositor session and promotes the data during the
+first configuration load of a different session. Reloads in the saving session
+continue to use the active data. The plugin never rewrites your `input.lua`.
 
 ## Install from Git
 
@@ -72,12 +73,16 @@ and cannot preserve the stock entry's settings.
 
 ```sh
 omarchy plugin update madmatt.keyboard-settings
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
 ```
 
 Receipts and saved keyboard settings live outside the checkout, so a normal
-fast-forward update keeps them. Review the updater's diff before accepting it.
-Omarchy updates from the repository's default branch; release archives and tags
-do not pin this command.
+fast-forward update keeps them. Re-running activation is idempotent: it leaves the
+bar and receipt alone and refreshes the fixed loader/data format only when the
+new version requires it. Review both dry runs and the updater's diff before
+accepting them. Omarchy updates from the repository's default branch; release
+archives and tags do not pin this command.
 
 ## Remove
 

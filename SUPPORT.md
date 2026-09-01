@@ -27,9 +27,9 @@ Common recovery paths:
 - A save interrupted between its two owned-file writes is checked by the next
   helper request. External edits are preserved and the helper asks for manual
   review rather than overwriting them.
-- Pending data is promoted during a graceful Hyprland shutdown. If the compositor
-  or machine was forcibly terminated, sign out or reboot normally once more; the
-  validated pending file remains available for promotion.
+- Pending data is promoted during the first configuration load of a different
+  Hyprland session. If an update changed the loader format, review and run
+  `tools/plugin.py activate --apply`, then sign out or reboot once.
 - If a generic disable removed the widget, run `tools/plugin.py prepare-remove`
   from the installed checkout. It can restore the stock entry from the external
   receipt.

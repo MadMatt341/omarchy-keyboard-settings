@@ -9,7 +9,8 @@ import fcntl
 from unittest.mock import patch
 
 from backend.catalog import Catalog, SettingsError
-from backend.deferred import LOADER, parse as parse_deferred, render as render_deferred
+from backend.deferred import (DATA_HEADER, LOADER, parse as parse_deferred,
+                              render as render_deferred, saved_session)
 from backend.keymap import Keymap, validate
 from backend.devices import resolve, pick, active_index, bits, metadata, normalized
 from backend.session import Session, Paths, Hyprland, config_of, lua_string, equivalent
@@ -179,44 +180,44 @@ class DeferredLoaderTests(unittest.TestCase):
 
     def test_data_is_inert_strict_and_round_trips_unicode(self):
         name = 'name"}); error("injection") -- \\ąć\n123'
-        data = render_deferred(self.saved('us,pl', name))
+        data = render_deferred(self.saved('us,pl', name), 'session-a')
         self.assertNotIn(name.encode(), data)
         self.assertEqual(parse_deferred(data)[0]['name'], name)
-        for corrupt in (b'broken\n', data[:-1], data + b'not-a-row\n'):
+        self.assertEqual(saved_session(data), 'session-a')
+        for corrupt in (b'broken\n', data[:-1], data + b'not-a-row\n',
+                        DATA_HEADER + b'session\t2f\n'):
             with self.assertRaises(ValueError):
                 parse_deferred(corrupt)
 
-    def test_loader_keeps_active_on_reload_and_promotes_only_at_shutdown(self):
+    def test_loader_keeps_active_on_reload_and_promotes_in_next_session(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / 'state'
             root = state / 'omarchy/keyboard-settings'
             root.mkdir(parents=True)
             loader = Path(directory) / 'loader.lua'
             loader.write_bytes(LOADER)
-            active = render_deferred(self.saved('us,pl'))
-            pending = render_deferred(self.saved('pl,us'))
+            active = render_deferred(self.saved('us,pl'), 'session-a')
+            pending = render_deferred(self.saved('pl,us'), 'session-a')
             (root / 'active-v1.conf').write_bytes(active)
             (root / 'pending-v1.conf').write_bytes(pending)
             runner = Path(directory) / 'runner.lua'
             runner.write_text('''
-local callbacks = {}
 local devices = {}
 hl = {
   device = function(spec) table.insert(devices, spec) end,
-  on = function(name, callback) callbacks[name] = callback end,
 }
 dofile(arg[1])
 assert(#devices == 1 and devices[1].kb_layout == arg[2])
 dofile(arg[1])
 assert(#devices == 2 and devices[2].kb_layout == arg[2])
-assert(callbacks["hyprland.shutdown"])
-callbacks["hyprland.shutdown"]()
 ''')
-            env = dict(os.environ, XDG_STATE_HOME=str(state))
+            env = dict(os.environ, XDG_STATE_HOME=str(state), HYPRLAND_INSTANCE_SIGNATURE='session-a')
             subprocess.run(['lua', str(runner), str(loader), 'us,pl'], check=True, env=env)
+            self.assertEqual((root / 'active-v1.conf').read_bytes(), active)
+            env['HYPRLAND_INSTANCE_SIGNATURE'] = 'session-b'
+            subprocess.run(['lua', str(runner), str(loader), 'pl,us'], check=True, env=env)
             self.assertEqual((root / 'active-v1.conf').read_bytes(), pending)
             self.assertEqual((root / 'active-v1.conf').stat().st_mode & 0o777, 0o600)
-            subprocess.run(['lua', str(runner), str(loader), 'pl,us'], check=True, env=env)
 
 
 class TransactionTests(unittest.TestCase):
@@ -245,11 +246,13 @@ class TransactionTests(unittest.TestCase):
         return self.session.save(pairs or ['us/', 'de/'], shortcut, status['revision'])
 
     def test_save_writes_owned_files_without_live_keymap_changes(self):
-        result = self.save()
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            result = self.save()
         self.assertEqual(result, {'restartRequired': True})
         self.assertEqual(self.input.read_text(), '-- original user file; never rewritten\n')
         self.assertEqual(self.paths.override.read_bytes(), LOADER)
         targets = parse_deferred(self.paths.pending.read_bytes())
+        self.assertEqual(saved_session(self.paths.pending.read_bytes()), 'session-a')
         self.assertEqual({target['layout'] for target in targets}, {'us,de'})
         self.assertTrue(all('compose:caps,shift:both_capslock_cancel' in target['options']
                             for target in targets))

@@ -7,6 +7,7 @@ sys.dont_write_bytecode = True
 
 import argparse
 import json
+import os
 from pathlib import Path
 import secrets
 
@@ -14,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.catalog import SettingsError
-from backend.deferred import LOADER, MARKER, parse as parse_deferred, render as render_deferred
+from backend.deferred import (DATA_HEADER, LOADER, MARKER, parse as parse_deferred,
+                              render as render_deferred, render_rows)
 from backend.session import Paths, Session, atomic, encoded
 from tools.install import ID, STOCK, location, replace, tree_hash
 
@@ -49,18 +51,42 @@ def _loader_plan(paths):
     if current not in (None, LOADER) and not current.startswith(MARKER.encode()):
         raise SettingsError("The saved keyboard override is not owned by this picker.")
 
+    decoded = {}
     for path in (paths.active, paths.pending):
         if path.exists():
             try:
-                parse_deferred(path.read_bytes())
+                decoded[path] = parse_deferred(path.read_bytes())
             except (OSError, ValueError) as exc:
                 raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before activation.") from exc
 
-    complete = current == LOADER and paths.active.exists() and paths.pending.exists()
+    if len(decoded) == 1:
+        raise SettingsError("The deferred keyboard data is incomplete. Recover it before activation.")
+
+    complete = (current == LOADER and len(decoded) == 2
+                and all(_blob(path).startswith(DATA_HEADER) for path in decoded))
     if complete:
         return {}, _blob(paths.profile)
 
     profile_blob = _blob(paths.profile)
+    if len(decoded) == 2:
+        different = decoded[paths.active] != decoded[paths.pending]
+        session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+        if different and not session:
+            raise SettingsError("Refresh the deferred loader from the active Hyprland session.")
+        active_blob, pending_blob = _blob(paths.active), _blob(paths.pending)
+        desired = {
+            paths.active: (active_blob if active_blob.startswith(DATA_HEADER)
+                           else render_rows(decoded[paths.active], session)),
+            # Rebind a distinct pending edit to the session performing the
+            # loader refresh. Updating the watched loader can then reload the
+            # current config without mistaking it for a new login.
+            paths.pending: (pending_blob if pending_blob.startswith(DATA_HEADER) and not different
+                            else render_rows(decoded[paths.pending], session)),
+            paths.override: LOADER,
+        }
+        return ({path: (_blob(path), content) for path, content in desired.items()
+                 if _blob(path) != content}, profile_blob)
+
     try:
         saved = json.loads(profile_blob) if profile_blob is not None else {"profiles": {}}
     except ValueError as exc:
@@ -91,10 +117,44 @@ def activate(apply=False, source=ROOT):
         raise SettingsError("Run activation from the Git checkout installed by `omarchy plugin add`.")
     if not (target / ".git").exists():
         raise SettingsError("The installed plugin is not Git-managed. Use the documented migration first.")
-    if receipt.exists():
-        raise SettingsError("An activation receipt already exists. Review or remove the current activation first.")
     before = shell.read_bytes()
     settings = json.loads(before)
+    receipt_before = _blob(receipt)
+    if receipt_before is not None:
+        if receipt.is_symlink():
+            raise SettingsError("The activation receipt must be a regular private state file.")
+        saved_receipt = json.loads(receipt_before)
+        if (not isinstance(saved_receipt, dict) or saved_receipt.get("schema") not in (2, 3)
+                or "originalEntry" not in saved_receipt):
+            raise SettingsError("The activation receipt format needs manual review.")
+        location(settings, ID)
+        if any((entry.get("id") if isinstance(entry, dict) else entry) == STOCK
+               for entries in settings.get("bar", {}).get("layout", {}).values()
+               if isinstance(entries, list) for entry in entries):
+            raise SettingsError("The stock and replacement indicators are both present. Review the bar before refreshing.")
+        loader_plan, loader_profile = _loader_plan(paths)
+        print("Would refresh the deferred-login loader without changing the bar or current layout." if loader_plan else
+              "The deferred-login loader is already current; no files would change.")
+        if not apply or not loader_plan:
+            return
+        with paths.lock():
+            if paths.transaction.exists():
+                raise SettingsError("Recover the pending keyboard file update before activation.")
+            if shell.read_bytes() != before or _blob(receipt) != receipt_before:
+                raise SettingsError("The activation state changed. Run activation again.")
+            if _blob(paths.profile) != loader_profile or any(_blob(path) != previous
+                                                            for path, (previous, _) in loader_plan.items()):
+                raise SettingsError("The saved keyboard state changed. Run activation again.")
+            try:
+                for path, (_, content) in loader_plan.items():
+                    atomic(path, content)
+            except Exception:
+                for path, (previous, _) in loader_plan.items():
+                    _restore(path, previous)
+                raise
+        print("Refreshed the deferred-login loader. The current keyboard layout was unchanged.")
+        return
+
     section, index, _ = location(settings, STOCK)
     updated, original = replace(settings, STOCK, ID)
     loader_plan, loader_profile = _loader_plan(paths)

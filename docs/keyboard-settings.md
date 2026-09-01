@@ -105,16 +105,20 @@ typing.
 keymap state, resolves the catalog pairs, preserves unrelated XKB options, and
 validates every target. It creates a recovery backup and `transaction.json`, then
 atomically writes the inert pending data and profile and verifies their bytes.
-The fixed Lua loader and active data are unchanged. The transaction is removed
-only after both readbacks succeed.
+The pending data records the current `HYPRLAND_INSTANCE_SIGNATURE`; the fixed Lua
+loader and active data are unchanged. The transaction is removed only after both
+readbacks succeed.
 
 If the helper stops between the two writes, the next non-catalog request restores
 only files that still match the interrupted write. New external contents are
 preserved for manual review. Recovery performs no compositor call. A successful
 save also performs no `hyprctl reload`, no watched-Lua write and no
 `hyprctl eval hl.device`. The fixed loader continues to use active data during
-the session. On graceful Hyprland shutdown it validates and atomically promotes
-the pending data; the next compositor session reads the promoted active data.
+the saving session, including configuration reloads. Hyprland creates its instance
+signature before loading Lua. During the first configuration parse of a different
+session, the loader validates and atomically promotes pending data before it
+registers the device declarations. This covers sign-out/login and reboot without
+depending on a graceful shutdown event or a second configuration reload.
 
 Ordinary picker switching is separate. It calls only `switchxkblayout` for layouts
 already loaded by the running compositor, verifies each typing interface, and
@@ -133,9 +137,9 @@ restores prior indices if a partial switch fails.
 | `ROOT/activity.json` | Verified runtime source interface and observed indices; no saved keyboard settings. |
 | `ROOT/transaction.json`, `ROOT/lock` | Interrupted owned-file save record and mutation lock. |
 | `ROOT/backups/<token>/recovery.json` | Previous and intended owned-file contents for recovery. |
-| `ROOT/pending-v1.conf` | Validated, non-executable device data written by saves; not watched by Hyprland. |
-| `ROOT/active-v1.conf` | Data read by the fixed loader; replaced from pending data only at graceful compositor shutdown. |
-| `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Fixed loader installed during activation. It parses strict hex records, applies only active data and promotes pending data at shutdown. |
+| `ROOT/pending-v1.conf` | Validated, non-executable device data plus the saving session identifier; written by saves and not watched by Hyprland. |
+| `ROOT/active-v1.conf` | Data read by the fixed loader; replaced from pending data only during the first configuration load of a different compositor session. |
+| `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Fixed loader installed during activation. It parses strict hex records, keeps active data on same-session reloads, and promotes pending data in a new session. |
 | `CACHE/omarchy/keyboard-settings/catalog-v1.json` | Atomic parsed-XKB cache, keyed by the SHA-256 hashes of the installed base and extras registries. Corruption or source changes rebuild it. |
 | `ROOT/installation.json` | External activation receipt with the exact original bar entry, section/index and backup reference. It survives Git updates and generic checkout removal. |
 | `ROOT/lifecycle/backups/<token>/shell.json` | Bar backup created by Git activation. |
@@ -153,13 +157,14 @@ by `tools/package_support.py`; every stage starts empty.
 `tools/plugin.py activate` and `prepare-remove` are dry-run by default. Activation
 replaces one stock entry while preserving its settings and center anchor, and
 installs or migrates the fixed loader only when the saved state matches the live
-keyboard. Removal preparation restores the stock entry and resets the loader and
-active/pending data unless `--keep-settings` is explicit. Both use the same bounded
-state lock as settings changes, refuse a pending transaction or concurrent bar
-edit, and keep recovery evidence outside the checkout. Omarchy remains responsible
-for cloning, updating and deleting the Git checkout. `tools/install.py` remains
-only for migration and isolated compatibility tests of older copied development
-installations.
+keyboard. With an existing receipt, activation becomes an idempotent loader refresh
+that preserves distinct active and pending configurations. Removal preparation
+restores the stock entry and resets the loader and active/pending data unless
+`--keep-settings` is explicit. Both use the same bounded state lock as settings
+changes, refuse a pending transaction or concurrent bar edit, and keep recovery
+evidence outside the checkout. Omarchy remains responsible for cloning, updating
+and deleting the Git checkout. `tools/install.py` remains only for migration and
+isolated compatibility tests of older copied development installations.
 
 ## Incident boundary
 
