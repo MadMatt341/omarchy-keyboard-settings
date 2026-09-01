@@ -14,6 +14,7 @@ import re
 import secrets
 import subprocess
 import tempfile
+import time
 
 from .catalog import Catalog, SettingsError
 from .devices import metadata, resolve, pick, active_index
@@ -73,10 +74,14 @@ def atomic(path, content):
 
 
 class Paths:
-    def __init__(self, config=None, state=None):
+    def __init__(self, config=None, state=None, cache=None, lock_timeout=5):
         home = Path.home()
         self.config = Path(config or os.environ.get("XDG_CONFIG_HOME") or home / ".config")
         self.state = Path(state or os.environ.get("XDG_STATE_HOME") or home / ".local/state")
+        if cache is None and state is not None:
+            cache = Path(state).parent / "cache"
+        self.cache = Path(cache or os.environ.get("XDG_CACHE_HOME") or home / ".cache")
+        self.lock_timeout = lock_timeout
         self.root = self.state / "omarchy/keyboard-settings"
         self.profile = self.root / "settings.json"
         self.activity = self.root / "activity.json"
@@ -88,7 +93,15 @@ class Paths:
     def lock(self):
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with (self.root / "lock").open("a") as stream:
-            fcntl.flock(stream, fcntl.LOCK_EX)
+            deadline = time.monotonic() + self.lock_timeout
+            while True:
+                try:
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise SettingsError("Another keyboard settings action is still running. Try again.")
+                    time.sleep(0.02)
             yield
 
     def sources(self):
@@ -164,7 +177,7 @@ class Session:
         self.paths = paths or Paths()
         self.hypr = hypr or Hyprland()
         self.records = records
-        self.catalog = Catalog()
+        self.catalog = Catalog(cache=self.paths.cache / "omarchy/keyboard-settings/catalog-v1.json")
 
     def snapshot(self, event_device=""):
         devices = self.hypr.devices()
@@ -363,19 +376,21 @@ class Session:
         """Called under the installation lock, only by explicit removal."""
         if self.paths.transaction.exists():
             raise SettingsError("Recover the pending keyboard file update before removal.")
-        if not self.paths.override.exists():
+        if not self.paths.override.exists() and not self.paths.profile.exists():
             return
-        self.paths.check_loader()
-        self.hypr.check()
         old = self.file_blob(self.paths.override)
         profile = self.file_blob(self.paths.profile)
         backup = self.paths.root / "backups" / ("remove-" + secrets.token_hex(8))
-        atomic(backup / "override.lua", base64.b64decode(old))
+        if old is not None:
+            self.paths.check_loader()
+            self.hypr.check()
+            atomic(backup / "override.lua", base64.b64decode(old))
         if profile is not None:
             atomic(backup / "settings.json", base64.b64decode(profile))
-        self.paths.override.unlink()
+        self.paths.override.unlink(missing_ok=True)
         try:
-            self.hypr.reload()
+            if old is not None:
+                self.hypr.reload()
             self.paths.profile.unlink(missing_ok=True)
         except Exception:
             self.restore_blob(self.paths.override, old)

@@ -20,15 +20,17 @@ Read [README.md](README.md) for commands, then the relevant part of
 | Physical keyboard grouping | `backend/devices.py` |
 | Active interface, observation cache | `backend/session.py` (`layout_activity`, `status`) |
 | Character and shortcut validation | `backend/keymap.py` |
-| Trial, persistence, recovery, Lua output | `backend/session.py` |
-| Package contents, installation, removal | `tools/install.py`, `tools/package.py`, `manifest.json`, `qmldir` |
+| Deferred save, persistence, recovery, Lua output | `backend/session.py` |
+| Git activation/removal | `tools/plugin.py`, `tests/test_integration.py` |
+| Package contents and legacy copied installs | `tools/package_support.py`, `tools/package.py`, `tools/install.py`, `manifest.json`, `qmldir` |
+| Redacted support report | `tools/diagnostics.py`, `SUPPORT.md` |
 
 ## Rules that protect typing and user configuration
 
-- Keep active layout separate from the first layout (login default). Synchronize verified typing interfaces after switch, Keep and recovery.
-- Route layout/variant/default/shortcut edits through `Session.begin()` and its trial. Preserve guardian readiness, locking, revision/token checks, backups and readback verification.
+- Keep active layout separate from the first saved layout (login default). Synchronize verified typing interfaces after runtime switching.
+- Route layout/variant/default/shortcut edits through `Session.save()`. Keep them deferred until login/reboot; preserve locking, revision checks, transaction backups and readback verification.
 - Preserve unrelated XKB options. Validate the candidate with libxkbcommon before applying it. `both-alt` is `grp:alt_altgr_toggle`; `grp:alts_toggle` breaks the tested Polish AltGr map.
-- Do not guess a device from Hyprland's `main` flag or overwrite custom keymaps. Do not capture raw input events or persist the trial text.
+- Do not guess a device from Hyprland's `main` flag or overwrite custom keymaps. Do not reintroduce live keymap replacement, capture raw input events or add a typing-text store.
 - Use installed `qs.Ui` / `qs.Commons` components and style tokens. Keep keyboard focus, ordinary text entry, stable flag/label sizing, readable ambiguity indicators and reduced-motion behavior working.
 - Keep helper bytecode disabled: caches in the installed plugin tree trigger shell reloads. Generate scratch files, logs and packages under ignored `work/`.
 - Develop in this checkout; do not edit packaged Omarchy files or installed plugin copies as an implementation shortcut. Live install/removal or keyboard changes need authorization in the task. Do not infer it from an old validation record.
@@ -45,11 +47,11 @@ Create `work/` before packaging a fresh checkout (`mkdir -p work`).
 | Distribution | `python3 tools/package.py` (also runs Omarchy's plugin validator) |
 | Documentation only | Check paths, commands and claims against source; no new tests needed |
 
-Transaction/device/keymap regressions belong in `tests/test_backend.py`; detached
-guardian and installer checks in `tests/test_integration.py`; active-interface
+Transaction/device/keymap regressions belong in `tests/test_backend.py`; lifecycle
+and installer checks in `tests/test_integration.py`; active-interface
 cache checks in `tests/test_activity.py`; native UI checks in `tests/NativePreview.qml`.
 Keep tests isolated from live keyboard configuration. The helper's `status` writes
-observation state and can recover an expired trial; it is not a pure read.
+observation state and can recover an interrupted deferred file transaction; it is not a pure read.
 
 ## Keep handoffs small
 

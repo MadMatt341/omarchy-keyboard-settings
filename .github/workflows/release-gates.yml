@@ -1,0 +1,34 @@
+name: Release gates
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  omarchy:
+    # Native checks and the official validator require an Omarchy Quattro image.
+    runs-on: [self-hosted, Linux, X64, omarchy-quattro]
+    timeout-minutes: 15
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
+      - name: Check source whitespace
+        run: git diff --check HEAD^ HEAD
+      - name: Record source and test fingerprint
+        run: python3 -B tools/source_fingerprint.py
+      - name: Validate the clean Git source users receive
+        run: omarchy plugin validate .
+      - name: Run Python and integration tests
+        run: python3 -B -m unittest discover -s tests -v
+      - name: Enforce offline health budgets
+        run: python3 -B tests/benchmark_health.py
+      - name: Run native QML checks
+        run: python3 tests/render_native.py
+      - name: Build and inspect reproducible package
+        run: python3 -B tools/package.py

@@ -10,6 +10,7 @@ Scope {
     id: preview
     property int step: 0
     property bool capturesComplete: false
+    property int dismissCount: 0
     property var pages: ["picker", "editor", "search"]
     TestCase {
         name: "KeyboardPicker"
@@ -20,6 +21,7 @@ Scope {
             fake.error = ""
             fake.saves = []
             fake.animationsEnabled = true
+            preview.dismissCount = 0
             picker.reset()
             wait(20)
         }
@@ -32,6 +34,21 @@ Scope {
         function test_helper_location() {
             verify(Plugin.Backend.helper.startsWith("/"), "The helper must resolve to a real filesystem path")
             console.log("NATIVE_HELPER_PATH_OK", Plugin.Backend.helper)
+        }
+        function test_backend_failure_and_refresh_coalescing() {
+            let backend = Plugin.Backend
+            let oldError = backend.error
+            verify(!backend.reply("not json").ok)
+            compare(backend.error, "The keyboard did not respond. Try again.")
+            backend.error = oldError
+            let started = Date.now()
+            backend.refresh()
+            for (let i = 0; i < 200; i++) backend.refresh()
+            if (backend.query.running || backend.action.running) verify(backend.pending)
+            tryVerify(() => !backend.query.running && !backend.pending, 3000)
+            let elapsed = Date.now() - started
+            verify(elapsed <= 500, "Event-storm refresh exceeded 500 ms: " + elapsed)
+            console.log("NATIVE_BACKEND_HEALTH_OK", "stormRefreshMs=" + elapsed)
         }
         function visibleButtons(item) {
             let buttons = []
@@ -82,6 +99,10 @@ Scope {
             tryCompare(fake, "saveCount", 1)
             compare(fake.saves[0].layouts.join(","), "us/")
             compare(fake.saves[0].shortcut, "both-alt")
+            tryVerify(() => picker.editorRows.length === 1)
+            let remainingRemove = findChild(picker, "removeLayout0")
+            verify(remainingRemove)
+            compare(remainingRemove.enabled, false)
             let warning = findChild(picker, "pendingRestart")
             compare(warning.visible, true)
             compare(warning.text, "Saved. Sign out or reboot to apply layout edits.")
@@ -92,6 +113,31 @@ Scope {
             })
             tryVerify(() => captured)
             console.log("NATIVE_DIRECT_EDIT_OK")
+        }
+        function test_default_layout_selection() {
+            picker.go("editor")
+            wait(20)
+            let selector = findChild(picker, "defaultLayout")
+            verify(selector)
+            compare(selector.label, "Default at login")
+            compare(selector.value, "us/")
+            compare(selector.options.length, 2)
+            compare(selector.options[0].label, "English (US)")
+            compare(selector.options[1].label, "Polish")
+            compare(selector.enabled, true)
+            // The shared Dropdown owns and tests its popup navigation. Mirror
+            // its selection contract here so this test stays focused on the
+            // picker action wired to `changed(value)`.
+            selector.value = "pl/"
+            selector.changed("pl/")
+            tryCompare(fake, "saveCount", 1)
+            compare(fake.saves[0].layouts.join(","), "pl/,us/")
+            compare(fake.saves[0].shortcut, "both-alt")
+            tryCompare(selector, "value", "pl/")
+            compare(fake.state.layouts.map(row => row.id).join(","), "us/,pl/")
+            compare(fake.state.active, 1)
+            verify(fake.state.pendingRestart)
+            console.log("NATIVE_DEFAULT_LAYOUT_OK")
         }
         function test_menu_tooltips(data) {
             fake.state = Object.assign({}, fake.state, {
@@ -167,15 +213,64 @@ Scope {
             keyClick(Qt.Key_Return)
             compare(picker.page, "editor")
             keyClick(Qt.Key_Escape)
+            compare(preview.dismissCount, 1)
+            compare(picker.page, "editor")
+            picker.reset()
             compare(picker.page, "picker")
+            keyClick(Qt.Key_Escape)
+            compare(preview.dismissCount, 2)
+            compare(picker.page, "picker")
+            picker.go("devices")
+            wait(20)
+            keyClick(Qt.Key_Escape)
+            compare(preview.dismissCount, 3)
+            compare(picker.page, "devices")
+            picker.reset()
             picker.go("search")
             wait(20)
             keyClick(Qt.Key_J)
             keyClick(Qt.Key_K)
             compare(picker.search, "jk")
             keyClick(Qt.Key_Escape)
-            compare(picker.page, "editor")
+            compare(preview.dismissCount, 4)
+            compare(picker.page, "search")
+            picker.reset()
+            compare(picker.page, "picker")
+            compare(picker.search, "")
             console.log("NATIVE_INTERACTION_OK")
+        }
+        function test_repeated_navigation_stays_bounded() {
+            console.log("NATIVE_LONGEVITY_BASELINE")
+            wait(250)
+            for (let i = 0; i < 200; i++) {
+                picker.go(i % 2 ? "editor" : "search")
+                picker.reset()
+            }
+            wait(50)
+            compare(picker.page, "picker")
+            compare(picker.search, "")
+            compare(preview.dismissCount, 0)
+            console.log("NATIVE_LONGEVITY_OK")
+            wait(250)
+        }
+        function test_search_full_catalog_budget() {
+            tryVerify(() => Plugin.Backend.catalog.length >= 100, 5000)
+            fake.catalog = Plugin.Backend.catalog
+            let rowCount = Plugin.Backend.catalog.reduce((total, layout) => total + layout.variants.length, 0)
+            verify(rowCount >= 700)
+            picker.go("search")
+            let samples = []
+            let queries = ["international", "polish", "dead keys", "zz-no-match"]
+            for (let i = 0; i < 80; i++) {
+                let started = Date.now()
+                picker.search = queries[i % queries.length]
+                picker.results()
+                samples.push(Date.now() - started)
+            }
+            samples.sort((a, b) => a - b)
+            let p95 = samples[Math.floor(samples.length * 0.95) - 1]
+            verify(p95 <= 50, "Full-catalog search exceeded 50 ms: " + p95)
+            console.log("NATIVE_SEARCH_HEALTH_OK", "rows=" + rowCount, "p95Ms=" + p95)
         }
     }
     QtObject {
@@ -239,6 +334,7 @@ Scope {
                 width: parent.width - 28
                 height: implicitHeight
                 backend: fake
+                onDismiss: preview.dismissCount++
             }
         }
     }

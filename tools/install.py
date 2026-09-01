@@ -7,21 +7,20 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
+
+sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.catalog import SettingsError
 from backend.session import Paths, Session, atomic, encoded
+from tools.package_support import ROOT, ID, runtime_files, stage
 
-ID = 'madmatt.keyboard-settings'
 STOCK = 'omarchy.keyboard-layout'
-FILES = ['manifest.json', 'qmldir', 'Backend.qml', 'Keyboard.qml', 'Indicator.qml', 'Picker.qml', 'LayoutRow.qml',
-         'backend/__init__.py', 'backend/catalog.py', 'backend/devices.py', 'backend/keymap.py',
-         'backend/session.py', 'backend/keyboard_settings.py', 'README.md']
+FILES = runtime_files()
 
 
 def location(config, identity):
@@ -52,19 +51,6 @@ def replace(config, source, target, original=None):
 def tree_hash(folder):
     return {str(p.relative_to(folder)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(folder.rglob('*')) if p.is_file() and '__pycache__' not in p.parts}
-
-
-def stage(folder):
-    for name in FILES:
-        source = ROOT / name
-        if source.is_symlink() or not source.is_file():
-            raise SettingsError('Missing or linked package source: ' + name)
-        target = folder / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
-    result = subprocess.run(['omarchy', 'plugin', 'validate', str(folder)], capture_output=True, text=True)
-    if result.returncode:
-        raise SettingsError('Omarchy rejected the package: ' + result.stderr.strip())
 
 
 def run(apply=False, remove=False):

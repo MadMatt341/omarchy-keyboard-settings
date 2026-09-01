@@ -8,7 +8,7 @@ owning files and [VALIDATION.md](../VALIDATION.md) for evidence and open live ch
 | Page | Result |
 | --- | --- |
 | `picker` | Shows the layouts reported by the running compositor. Clicking one switches all verified typing interfaces with `switchxkblayout` and closes the popup. A separator precedes **Edit layouts…**. |
-| `editor` | Shows the saved configuration. Each layout has a × remove button; the final layout cannot be removed. **Add layout** opens search. Shortcut changes save immediately. |
+| `editor` | Shows the saved configuration. Each layout has a × remove button; the final layout cannot be removed. **Add layout** opens search. With multiple layouts, the default-at-login selector is shown. Default and shortcut changes save immediately. |
 | `search` | Searches installed layout/language/country metadata and variant labels. Selecting a result adds it and saves immediately. Already configured pairs are omitted. |
 | `devices` | Chooses a verified physical typing keyboard. Unresolved interfaces are disabled. Preference is saved without changing keyboard settings. |
 
@@ -19,13 +19,15 @@ picker continues to show and switch the layouts that the compositor is actually
 running; the editor shows the pending saved list and a restart notice.
 
 The first saved layout is the login default. Adding appends to the list, so the
-existing default stays first. To use a different default in this simplified UI,
-remove layouts before re-adding them in the desired order. Between one and four
-distinct layout/variant pairs are supported.
+existing default stays first. Choosing another default moves that exact
+layout/variant pair to the front while preserving the relative order of the
+others. This also changes the post-login shortcut cycle order. Between one and
+four distinct layout/variant pairs are supported.
 
 Tab/arrows/Enter navigate controls. Search retains ordinary text input. Escape
-goes search → editor → picker, or closes from the picker. Closing the popup never
-changes keyboard settings.
+closes the popup from every page; the visible back arrow navigates one page at a
+time. Reopening starts on the picker and clears the previous search. Closing the
+popup never changes keyboard settings.
 
 Indicator feedback rolls upward in the label's clipped slot: 180 ms to the flag,
 180 ms holding the fully visible flag, and 180 ms into the new letters. Both rolls
@@ -76,9 +78,10 @@ and keymaps. It reads the current index afresh. A single changed interface can
 identify a missed switch; multiple changes clear the source. `status()` updates
 the cache under the lock only when its contents change.
 
-QML refreshes after actions, polls every 10 seconds, and debounces compositor
-events by 40 ms. `configreloaded` clears the event hint and refreshes the animation
-option. Action success emits `completed`; the following query supplies readback.
+QML refreshes after actions, polls every 20 seconds as a missed-event fallback,
+and debounces compositor events by 40 ms. `configreloaded` clears the event hint
+and refreshes the animation option. Action success emits `completed`; the
+following query supplies readback.
 
 ## Validation and deferred save
 
@@ -118,7 +121,8 @@ restores prior indices if a partial switch fails.
 
 `CONFIG = $XDG_CONFIG_HOME` (default `~/.config`),
 `STATE = $XDG_STATE_HOME` (default `~/.local/state`), and
-`ROOT = STATE/omarchy/keyboard-settings`.
+`CACHE = $XDG_CACHE_HOME` (default `~/.cache`). `ROOT` below is
+`STATE/omarchy/keyboard-settings`.
 
 | File | Purpose |
 | --- | --- |
@@ -127,15 +131,28 @@ restores prior indices if a partial switch fails.
 | `ROOT/transaction.json`, `ROOT/lock` | Interrupted owned-file save record and mutation lock. |
 | `ROOT/backups/<token>/recovery.json` | Previous and intended owned-file contents for recovery. |
 | `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Generated login-time `hl.device` overrides; owns layout, variant and the preserved option list. |
-| `ROOT/installation.json`, `ROOT/installation-backup/shell.json` | Installer hashes/original bar entry and original bar config. |
-| `ROOT/removed/<timestamp>/` | Archived plugin and receipt after removal. |
-| `~/.config/omarchy/plugins/madmatt.keyboard-settings/` | Installed copy; source edits do not update it. |
-| `~/.config/omarchy/shell.json` | Bar configuration where the installer replaces one indicator entry. |
+| `CACHE/omarchy/keyboard-settings/catalog-v1.json` | Atomic parsed-XKB cache, keyed by the SHA-256 hashes of the installed base and extras registries. Corruption or source changes rebuild it. |
+| `ROOT/installation.json` | External activation receipt with the exact original bar entry, section/index and backup reference. It survives Git updates and generic checkout removal. |
+| `ROOT/lifecycle/backups/<token>/shell.json` | Bar backup created by Git activation. |
+| `ROOT/lifecycle/prepared-removals/<token>/installation.json` | Archived receipt after explicit preparation for removal. |
+| `ROOT/installation-backup/`, `ROOT/removed/` | Legacy copied-development installation backups and removed source. |
+| `~/.config/omarchy/plugins/madmatt.keyboard-settings/` | Primary Git checkout owned by `omarchy plugin add/update/remove`. |
+| `~/.config/omarchy/shell.json` | Bar configuration where activation replaces one indicator entry. |
 
 The helper reads `CONFIG/hypr/**/*.lua` and neighboring toggle files for conflict
 checks. The main Lua config must load `default.hypr.toggles`. User `input.lua` is
-never rewritten. The installer requires the default config root. Packaging copies
-the explicit `FILES` allowlist in `tools/install.py`.
+never rewritten. Activation requires Omarchy's default config root. Runtime files
+and the package version are derived from the root QML modules and `manifest.json`
+by `tools/package_support.py`; every stage starts empty.
+
+`tools/plugin.py activate` and `prepare-remove` are dry-run by default. Activation
+replaces one stock entry while preserving its settings and center anchor. Removal
+preparation restores that entry and resets the owned override unless
+`--keep-settings` is explicit. Both use the same bounded state lock as settings
+changes, refuse a pending transaction or concurrent bar edit, and keep recovery
+evidence outside the checkout. Omarchy remains responsible for cloning, updating
+and deleting the Git checkout. `tools/install.py` remains only for migration and
+isolated compatibility tests of older copied development installations.
 
 ## Incident boundary
 

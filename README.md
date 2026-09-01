@@ -1,80 +1,154 @@
 # Keyboard Settings for Omarchy
 
-Native keyboard-layout picker for Omarchy's Quickshell bar. Replaces
-`omarchy.keyboard-layout` in its existing slot. Independent development plugin;
-not an official Omarchy project.
+Native keyboard layout and variant picker for Omarchy's Quickshell bar. It
+replaces the stock `omarchy.keyboard-layout` entry in the same slot. This is an
+independent plugin and is not an official Omarchy project.
 
-- Click the language label to switch the active layout.
-- **Edit layouts…** shows a × beside each configured layout. Add a layout or variant from the installed registry, remove one with ×, or change the switching shortcut. Each edit saves immediately.
-- Saved edits take effect at the next login or reboot. The editor never replaces the live keymap; this avoids the Hyprland path that disconnected desktop applications during trial recovery.
-- The first layout is the login default; switching the active layout does not reorder it.
-- The label rolls upward into a country flag: **180 ms in, 180 ms hold, 180 ms out** into the new letters. Other layouts roll directly to their code. Set `"animate": false` on the bar entry for immediate labels; compositor animation settings are also respected.
+![Keyboard Settings editor](preview.png)
 
-Test actual letters and switching after the next login. Compiled keymap checks
-cannot verify your physical keyboard.
+The planned first release is a **public beta**. The current `0.1.0` source is a
+pre-release candidate: automated and isolated checks pass on the recorded Omarchy
+environment, while final physical typing, login and clean-system acceptance remain
+listed in [VALIDATION.md](VALIDATION.md).
 
-The picker targets verified physical typing interfaces, preserves unrelated XKB
-options, and leaves user `input.lua` untouched. It does not configure console,
-disk-unlock, locale, mouse, keybindings or IMEs. Custom keymaps and ambiguous device
-identities can block editing rather than being guessed.
+## What it does
 
-The indicator remembers a verified typing interface across shell reloads in `omarchy/keyboard-settings/activity.json` under the state directory, outside the watched plugin tree. This observation record does not change keyboard settings. It is reused only within the same Hyprland session, with matching device addresses, interfaces and keymaps; the displayed layout is always read afresh. A single interface changing since the previous observation also identifies a missed switch. Multiple changes remain ambiguous. When no interface can be identified, the bar shows the reported codes together (for example `PL/EN`), and its tooltip and menu explain how to synchronize them. No arbitrary layout or interface is selected.
+- Click the language label to switch an already loaded layout.
+- Open **Edit layouts…** to add or remove installed XKB layouts and variants,
+  choose the default at login, and select the switching shortcut.
+- Save up to four layouts. The first saved layout is the login default.
+- Preserve unrelated XKB options such as Compose and Caps Lock behavior.
+- Refuse ambiguous keyboards, custom keymaps and unsafe shortcut maps instead of
+  guessing.
 
-Local installation and a live popup check were recorded on 2026-08-31. Physical
-typing, persistence across login and other live acceptance checks remain open.
-See the validation record in the source checkout; tests/builds do not install the plugin.
+Saved edits take effect at the next login or reboot. The editor never replaces
+the live keymap. Switching from the picker uses only Hyprland's existing loaded
+layouts and does not reorder the saved login default.
 
-## Development docs
+The indicator rolls through a country flag when switching. Set `"animate": false`
+on its bar entry to disable that feedback; reduced compositor motion is respected.
+Keyboard navigation and Escape dismissal work throughout the popup.
 
-These files are in the source checkout; the plugin archive includes only this README.
+The plugin does not configure the console, disk unlock, locale, mouse, keybindings
+or IME engines. Test actual letters and shortcut directions after login: compiled
+keymaps and fixture screenshots cannot prove physical typing.
 
-- [AGENTS.md](AGENTS.md): implementation entry points, safety rules and checks by change type.
-- [Feature and implementation notes](docs/keyboard-settings.md): UI behavior, helper protocol, save lifecycle and owned files.
-- [VALIDATION.md](VALIDATION.md): tested environment, recorded results and remaining acceptance checks.
+## Requirements
 
-## Local checks
+The verified environment is Omarchy 4.0.2, Hyprland 0.56.2, Quickshell 0.3.1,
+Qt 6.11.2, libxkbcommon 1.13.2 and xkeyboard-config 2.48. These are tested
+versions, not minimum-version claims. The runtime uses only Omarchy components,
+Python's standard library and installed system keyboard data. There are no pip
+packages, downloads or web services at runtime.
 
-Run from the repository root on an Omarchy installation with Python 3,
-libxkbcommon 1.13+, xkeyboard-config, Hyprland's Lua API, Quickshell, Qt Quick/QtTest,
-Lua and `omarchy plugin validate`. The native harness copies shared components from
-`/usr/share/omarchy/shell/{Ui,Commons}`. No pip installation is required.
+Your Hyprland Lua configuration must load `default.hypr.toggles`. The plugin owns
+one generated per-device override after you save settings; it never rewrites
+your `input.lua`.
+
+## Install from Git
+
+Omarchy must own the Git checkout so that its updater works. Add the repository
+without `--enable`, then use the plugin's reversible activation helper. Every
+helper command is a dry run unless `--apply` is present.
+
+```sh
+omarchy plugin add https://github.com/madmatt/omarchy-keyboard-settings.git
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
+```
+
+Activation replaces exactly one stock keyboard indicator in place, preserving
+its entry settings and center anchoring. It stores the original entry and a bar
+backup under `$XDG_STATE_HOME/omarchy/keyboard-settings/`, outside the Git
+checkout. It does not change keyboard settings.
+
+Do not use `omarchy plugin add ... --enable`: generic enable adds a second widget
+and cannot preserve the stock entry's settings.
+
+## Update
+
+```sh
+omarchy plugin update madmatt.keyboard-settings
+```
+
+Receipts and saved keyboard settings live outside the checkout, so a normal
+fast-forward update keeps them. Review the updater's diff before accepting it.
+Omarchy updates from the repository's default branch; release archives and tags
+do not pin this command.
+
+## Remove
+
+Prepare removal first, review the dry run, apply it, and then let Omarchy delete
+the checkout:
+
+```sh
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prepare-remove
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prepare-remove --apply
+omarchy plugin remove madmatt.keyboard-settings
+```
+
+By default, preparation restores the stock indicator and backs up and removes
+the plugin-owned saved keyboard override, returning ownership to your existing
+Lua configuration. To keep the saved login keyboard configuration active after
+removing the UI, use:
+
+```sh
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prepare-remove --keep-settings --apply
+omarchy plugin remove madmatt.keyboard-settings
+```
+
+If generic disable removed the bar entry first, `prepare-remove` can reconstruct
+the stock entry from its receipt. If the checkout was already deleted, add the
+same repository again, run `prepare-remove --apply` without activating it, and
+then remove it normally.
+
+## Migrate a copied development installation
+
+Run the new lifecycle helper from this source checkout. It validates the old
+copy against its receipt before changing anything:
+
+```sh
+python3 tools/plugin.py prepare-remove --keep-settings
+python3 tools/plugin.py prepare-remove --keep-settings --apply
+omarchy plugin remove madmatt.keyboard-settings
+omarchy plugin add https://github.com/madmatt/omarchy-keyboard-settings.git
+python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
+```
+
+Omit `--keep-settings` if you want to reset the generated override during
+migration. A modified old installation is deliberately refused for manual review.
+
+## Troubleshooting and privacy
+
+See [SUPPORT.md](SUPPORT.md) for safe diagnostics and recovery. The plugin never
+captures or stores typed text. Its state can contain configured layout IDs and
+local keyboard interface names, so do not post raw state or helper `status`
+output. Use `python3 tools/diagnostics.py` for a redacted report.
+
+Plugins run with your user permissions and are not sandboxed. Review the source
+and the update diff. Security reports should use the private channel in
+[SECURITY.md](SECURITY.md).
+
+## Development and release checks
+
+Run from the repository root on a compatible Omarchy installation. The native
+harness uses installed `qs.Ui` and `qs.Commons` components with an offscreen
+fixture; it does not connect to the live Wayland keyboard session.
 
 ```sh
 mkdir -p work
-python3 -m unittest discover -s tests -v
+python3 -B -m unittest discover -s tests -v
+python3 -B tests/benchmark_health.py
 python3 tests/render_native.py
-python3 tools/package.py
+python3 -B tools/package.py
 ```
 
-The tests use temporary configuration and fake compositor data. The native harness
-uses an offscreen window without a live Wayland socket. Panel lifecycle checks use
-the real plugin owner/controller with a fixture replacing the layer-shell host;
-popup mapping and compositor focus still need live acceptance. Outputs:
+Outputs are written under ignored `work/`. Packaging starts with an empty stage,
+derives the version and entry point from `manifest.json`, validates it with
+Omarchy, and produces a byte-reproducible supplemental archive plus checksum.
+Git installation is the supported user route; the archive does not contain the
+activation helper.
 
-| Output | Location |
-| --- | --- |
-| UI captures and native test log | `work/native-captures/`, `work/native-render.log` |
-| Staged plugin | `work/package/madmatt.keyboard-settings/` |
-| Archive and checksum | `work/dist/keyboard-settings-0.1.0.tar.gz`, `work/dist/checksums.txt` |
-
-## Install or remove locally
-
-Keep the source checkout: the archive does not contain the installer. Commands
-without `--apply` only inspect/validate and report the proposed change.
-
-```sh
-python3 tools/install.py                 # preview installation
-python3 tools/install.py --apply         # perform an authorized installation
-python3 tools/install.py --remove        # preview removal
-python3 tools/install.py --remove --apply
-```
-
-Installation backs up the bar and does not change keyboard layouts. It refuses an
-existing installation, even in dry-run mode; there is no in-place update command.
-An earlier installation backup also blocks reinstallation until reviewed.
-
-Removal restores the stock indicator in the current slot, archives the plugin and
-removes its saved keyboard override so the existing Lua configuration takes effect.
-It preserves unrelated bar edits and refuses modified installed files or a pending
-file transaction. Removing the override also returns ownership of its layout/variant/options
-to your manual configuration; review load order before managing those values elsewhere.
+Implementation contracts are in [docs/keyboard-settings.md](docs/keyboard-settings.md),
+the publication runbook is in [docs/publishing.md](docs/publishing.md), and exact
+evidence and open live checks are in [VALIDATION.md](VALIDATION.md).

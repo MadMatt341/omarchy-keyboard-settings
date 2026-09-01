@@ -92,7 +92,7 @@ QtObject {
         onRunningChanged: if (!running) Qt.callLater(root.refresh)
     }
     property Timer polling: Timer {
-        interval: 10000
+        interval: 20000
         running: true
         repeat: true
         onTriggered: root.refresh()

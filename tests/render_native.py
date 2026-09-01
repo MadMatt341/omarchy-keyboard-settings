@@ -5,6 +5,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 
 root = Path(__file__).resolve().parents[1]
 staging = root / 'work/native'
@@ -37,14 +39,76 @@ env = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software',
            KEYBOARD_PREVIEW_OUTPUT=str(out), PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('DISPLAY', None)
-result = subprocess.run(['quickshell', '-p', str(staging / 'shell.qml'), '--no-color'], env=env,
-                        capture_output=True, text=True, timeout=45)
-log = result.stdout + result.stderr
+measurements = {}
+lines = []
+
+
+def resources(pid):
+    status = Path('/proc') / str(pid) / 'status'
+    values = {}
+    for line in status.read_text().splitlines():
+        if line.startswith('VmRSS:'):
+            values['rssKiB'] = int(line.split()[1])
+    values['fileDescriptors'] = len(list((status.parent / 'fd').iterdir()))
+    return values
+
+
+process = subprocess.Popen(['quickshell', '-p', str(staging / 'shell.qml'), '--no-color'], env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+
+
+def read_output():
+    for line in process.stdout:
+        lines.append(line)
+        for marker in ('NATIVE_LONGEVITY_BASELINE', 'NATIVE_LONGEVITY_OK'):
+            if marker in line:
+                try:
+                    measurements[marker] = resources(process.pid)
+                except (FileNotFoundError, ProcessLookupError):
+                    pass
+
+
+reader = threading.Thread(target=read_output, daemon=True)
+reader.start()
+timed_out = False
+try:
+    returncode = process.wait(timeout=45)
+except subprocess.TimeoutExpired:
+    timed_out = True
+    process.kill()
+    returncode = process.wait()
+reader.join(timeout=2)
+log = ''.join(lines)
+baseline = measurements.get('NATIVE_LONGEVITY_BASELINE', {})
+finished = measurements.get('NATIVE_LONGEVITY_OK', {})
+rss_growth = finished.get('rssKiB', 0) - baseline.get('rssKiB', 0)
+fd_growth = finished.get('fileDescriptors', 0) - baseline.get('fileDescriptors', 0)
+log += f'NATIVE_RESOURCE_HEALTH rssGrowthKiB={rss_growth} fdGrowth={fd_growth}\n'
+
+helper = str(staging / 'plugin/backend/keyboard_settings.py').encode()
+orphans = []
+for _ in range(20):
+    orphans = []
+    for command in Path('/proc').glob('[0-9]*/cmdline'):
+        try:
+            if helper in command.read_bytes():
+                orphans.append(command.parent.name)
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            pass
+    if not orphans:
+        break
+    time.sleep(0.05)
+if not orphans:
+    log += 'NATIVE_ORPHAN_OK\n'
 (root / 'work/native-render.log').write_text(log)
 print(log)
 runtime_tmp.cleanup()
 markers = ('NATIVE_PREVIEW_OK', 'NATIVE_INTERACTION_OK', 'NATIVE_FLAG_OK', 'NATIVE_HELPER_PATH_OK',
            'NATIVE_TOOLTIPS_OK', 'NATIVE_SEPARATOR_OK', 'NATIVE_UNRESOLVED_OK',
-           'NATIVE_DIRECT_EDIT_OK', 'NATIVE_TEST_TOTALS')
-if result.returncode or any(marker not in log for marker in markers) or any(t in log for t in ('TypeError:', 'ReferenceError:', 'Unable to assign', 'Failed to load', 'FAIL!', 'NATIVE_TEST_FAILED')):
+           'NATIVE_DIRECT_EDIT_OK', 'NATIVE_DEFAULT_LAYOUT_OK', 'NATIVE_BACKEND_HEALTH_OK',
+           'NATIVE_LONGEVITY_OK', 'NATIVE_SEARCH_HEALTH_OK', 'NATIVE_RESOURCE_HEALTH',
+           'NATIVE_ORPHAN_OK', 'NATIVE_TEST_TOTALS')
+if (timed_out or returncode or not baseline or not finished or rss_growth > 10240 or fd_growth > 0
+        or any(marker not in log for marker in markers)
+        or any(t in log for t in ('TypeError:', 'ReferenceError:', 'Unable to assign', 'Failed to load', 'FAIL!', 'NATIVE_TEST_FAILED'))):
     raise SystemExit(1)

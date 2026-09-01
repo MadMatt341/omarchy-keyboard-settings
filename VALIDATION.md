@@ -169,6 +169,129 @@ previous runtime files and receipt are backed up under
 A clean full-system reboot remains pending because the existing Wayland session
 had already suffered repeated client disconnects before this deployment.
 
+## Escape dismissal and reopen reset — 2026-09-01
+
+This is a source-check result; the changed popup behavior has not been installed
+or exercised in the live shell.
+
+| Check | Result |
+| --- | --- |
+| Native QtTest | 11 passed, 0 failed. Escape emitted dismissal from the editor and focused search field without navigating backward. |
+| Reopen state | The picker reset returned to the main page and cleared the prior search; `Keyboard.qml` invokes that reset whenever the panel opens. |
+| Visual inspection | `editor.png` and `search.png` retain the visible back arrow and have no clipping or layout regression. |
+| Distribution | `python3 tools/package.py` built the archive and passed Omarchy's plugin validator. |
+
+## Default-at-login selector — 2026-09-01
+
+This is a source-check result; the selector has not been installed or exercised
+in the live shell, and its saved order has not been applied by a real login.
+
+| Check | Result |
+| --- | --- |
+| Backend and integration suite | 36 passed. The existing deferred-save, keymap, active-interface and installer coverage remained green. |
+| Native QtTest | 12 passed, 0 failed. Selecting Polish submitted `pl/,us/`, retained the shortcut, and left the fixture runtime list and active index unchanged. |
+| Visual inspection | `editor.png` shows one default selector and only × actions on the rows. `editor-saved.png` hides the selector when one layout remains. Both fit without clipping. |
+| Distribution | `python3 tools/package.py` built the archive and passed Omarchy's plugin validator. |
+
+The selector was installed with the user's authorization on 2026-09-01. The
+existing plugin matched its receipt before the update; only `Picker.qml` and the
+packaged `README.md` differed from the validated source. Their previous versions,
+the receipt and stale bytecode caches are backed up under
+`~/.local/state/omarchy/keyboard-settings/updates/default-selector-1788288165017974732/`.
+The installed files match the refreshed receipt and no bytecode cache remains in
+the watched plugin tree. `shell.json`, saved keyboard settings and the owned Lua
+override were not written by the update.
+
+At 20:47 Europe/Warsaw, the user requested a full replacement of the running
+build. `omarchy restart shell` completed, the fresh shell answered its IPC ping,
+and its plugin list reported `madmatt.keyboard-settings` enabled with
+`omarchy.keyboard-layout` disabled. No keyboard configuration or layout-switch
+command was issued. Opening the selector and applying its saved order across a
+real login remain acceptance checks.
+
+## Step 0 release-readiness audit — 2026-09-01
+
+The audit ran against one unchanged source fingerprint,
+`357bf695143daad87aa5e2e6fdb5abb0caa1086461a487b8ea2bbcb5df5ac327`, based on
+commit `439ef4473764d386f91dd9e59c74b8e2ae983cd4` plus the recorded working-tree
+changes. The fingerprint matched before and after all checks. Full logs are under
+`work/release-audit/357bf695143daad8/`.
+
+| Evidence area | Result |
+| --- | --- |
+| Python backend/integration | 36 passed; standard-library tracing reported 93.1% catalog, 97.3% devices, 94.6% keymap, 77.6% session and 82.0% legacy installer directional line coverage. |
+| Native UI | 12 passed, 0 failed, including default selection and Escape/reopen behavior. |
+| Distribution | Package and fresh-source Omarchy validation passed; 16 archive entries, sorted, with no symlinks, world-writable files or Python caches. |
+| Reproducibility | Failed: two builds produced different archive hashes; staging also reused an existing directory. |
+| Performance baseline | Catalog helper median 81.0 ms / p95 107.1 ms, 53,068-byte response. Isolated status p95 0.6 ms, switch p95 1.3 ms, one-layout save p95 44.0 ms and four-layout save p95 91.9 ms. |
+| Safety boundary | No reachable trial/helper actions or live `hyprctl eval hl.device`; generated login-time Lua still intentionally contains `hl.device` declarations. No raw-input capture, shell command construction or private checkout paths found in runtime source. |
+
+Coverage maps runtime switching, deferred saves, XKB validation, device ambiguity,
+activity invalidation, picker interaction and copied-install rollback to automated
+tests. Real layer-shell behavior, login application, physical typing, device
+replacement, IME coexistence and the public Git lifecycle still require separate
+evidence.
+
+**Audit verdict: NO-GO for publication.** Release-required findings were the
+missing Git activation/removal lifecycle, absent license/repository policy,
+non-reproducible package, stale staging risk, recurring catalog parsing, stale
+trial-era working instructions, and missing timeout/cache/longevity stress checks.
+No crash, unsafe live mutation or configuration-loss blocker was found in the
+audited candidate. The audit recorded findings before implementation changes.
+
+## Release hardening recheck — 2026-09-01
+
+The post-hardening candidate passed every offline gate under release-input
+fingerprint `af63b2c2ce3ccc666394e1f93bca009863599733e95bc29674a8fe2cfde298f8`.
+It is based on commit `439ef4473764d386f91dd9e59c74b8e2ae983cd4` plus the recorded working-tree
+changes. `tools/source_fingerprint.py` hashes every tracked and non-ignored input;
+this evidence ledger is explicitly excluded so results can be appended without
+invalidating the tested source. The before/after fingerprints are byte-identical.
+Full logs are under `work/release-candidate/af63b2c2ce3ccc66/`.
+
+### Behavior-to-evidence matrix
+
+| Contract | Evidence |
+| --- | --- |
+| Runtime switching | Isolated tests verify only `switchxkblayout`, synchronize every verified typing interface, verify readback and restore prior indices after partial failure. |
+| Deferred saves and default order | Tests validate one/four-layout writes, stale revisions, preserved XKB options, atomic two-file recovery and no live compositor mutation. Native tests verify default reordering, immediate saved-state feedback and that removing to one layout disables the remaining ×. |
+| XKB safety | Real libxkbcommon checks Polish AltGr, shifted characters, both Alt press orders, other layouts/variants and rejection of the known `grp:alts_toggle` regression. |
+| Device and activity state | Fixtures cover physical grouping, ambiguity, mouse/media/virtual exclusion, replacement, session/address/keymap invalidation, missed single events and refusal to guess multiple changes. |
+| UI and accessibility | Native Omarchy components cover picker/editor/search/devices, ordinary text input, Tab/arrows/Enter/Escape, reopening reset, ambiguity names/tooltips, reduced motion, stable sizing and the root fixture preview. Live layer-shell edges/scaling and screen-reader output remain open. |
+| Lifecycle and recovery | Isolated Git fixtures cover dry-run activation, exact stock-entry replacement, preserved center anchoring/settings, external receipts, update-safe state, reset/retain removal, pending-transaction refusal, generic-disable repair and copied-install migration. |
+| Publication | Fresh source and clean staged package pass Omarchy validation. The root has MIT licensing, support/security policy, redacted diagnostics, preview, changelog, user lifecycle docs and a compatible-runner CI workflow. CI and public-host checks have not run because no repository was published. |
+
+### Gate results
+
+| Gate | Result |
+| --- | --- |
+| Python backend/integration | **49 passed**. Fault coverage includes malformed JSON, unreadable helper replies, missing/timed-out desktop commands, bounded lock contention, corrupt cache/state, injected write-permission failure, interrupted writes, lifecycle races and redacted read-only diagnostics. |
+| Directional stdlib trace | Catalog 92.9%, devices 97.3%, keymap 94.6%, session 83.7%, diagnostics 93.9%, package support 94.6%, legacy installer 82.1% and Git lifecycle 71.5%. Uncovered lifecycle lines are primarily CLI/error branches; the required state transitions have focused fixtures. |
+| Native QML | **15 passed, 0 failed**. Full 753-row search p95 was 12 ms; a 200-refresh storm completed in 254 ms. Two hundred navigation/reset cycles added no RSS or file descriptors in the measured run, and left no orphan helper process. |
+| Repeated performance | Three consecutive runs passed. Warm catalog p95 was 75.4–83.6 ms; one-layout save p95 17.6–26.0 ms; four-layout save p95 62.5–81.4 ms. All remain well inside the absolute budgets. |
+| Idle behavior | The original six status launches/minute repeatedly exceeded 0.5% of one core. A 20-second fallback reduced this to three launches/minute. Two loaded-system samples measured 0.542–0.574%; the required rerun then passed three consecutive times at 0.352–0.400%. Hyprland event refresh remains immediate. |
+| Package | Two clean builds were byte-identical. The 22-file archive has a manifest-derived version, exact source correspondence, sorted entries, normalized owner/mode/time metadata, no links/caches/stale files and passed Omarchy validation. |
+| Repository/privacy | Current inputs and 104 historical blobs contain no detected absolute home path, private key or common token pattern. The fixture preview contains no personal desktop/device data. The owner explicitly chose to retain the existing non-noreply commit-author email for publication. |
+| Documentation | All 17 local links resolve. Install, activation, update, copied-install migration, reset/retain removal, recovery, compatibility, privacy and support behavior match the implemented tools. |
+
+The cache is atomic under `$XDG_CACHE_HOME/omarchy/keyboard-settings/`, keyed by
+the SHA-256 hashes of the installed base/extras registries, and survives corruption
+or an unwritable cache without blocking registry use. Packaging and the legacy
+copied installer share manifest-derived identity and file selection; every stage
+starts empty. The responsibility review kept `Picker.qml` and `session.py` intact:
+the measured work did not justify a broad split, while package, lifecycle,
+diagnostic and fingerprint responsibilities now have independent modules and tests.
+No active trial/guardian path or stale trial action remains outside historical
+incident documentation.
+
+**Verdict: GO for an offline release-candidate handoff; NO-GO for publication.**
+There is no remaining offline crash, hang, leak, unsafe-mutation, corruption or
+distribution blocker. Publication remains gated on the live checks below, a real
+fresh Git lifecycle/migration on another account or system, private beta, an
+executed CI run, and marketplace ID/schema verification. No install, keyboard
+mutation, reboot, repository creation, push, tag,
+release or marketplace submission was performed by this recheck.
+
 ## Remaining live acceptance checks
 
 Record the tested source revision, environment and observed result before checking
@@ -176,8 +299,8 @@ an item off. The checks below can change live keyboard settings; run them only
 within an authorized live-testing task.
 
 - [ ] After a login applies a saved edit, type Polish `ąćęłńóśźż` and uppercase equivalents and verify switching in both Alt press orders.
-- [ ] Confirm an added/removed layout and shortcut take effect after login while the first saved layout remains the default.
-- [ ] Confirm closing the editor with Escape performs no keyboard or recovery action.
+- [ ] Confirm an added/removed layout, changed default and shortcut take effect after login; verify the chosen first layout and resulting shortcut cycle order.
+- [ ] Confirm Escape closes from picker/editor/search/devices, reopening starts at the picker, and dismissal performs no keyboard or recovery action.
 - [ ] Check popup bounds, focus, Tab/arrows/Enter/Escape and text entry on every bar edge and with the user's scaling.
 - [ ] Check unplug/replug and replacement keyboards without applying stale state to a different device.
 - [ ] Check coexistence with the user's IME, if present. The picker does not manage IME engines.

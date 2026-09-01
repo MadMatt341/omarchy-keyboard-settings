@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
-"""Build an audited local archive without installing it."""
+"""Build a clean, reproducible local archive without installing it."""
+import sys
+
+sys.dont_write_bytecode = True
+
 from pathlib import Path
 import hashlib
-import json
-import sys
-import tarfile
 import argparse
 
-from install import ROOT, ID, stage
+try:
+    from tools.package_support import ROOT, ID, archive_tree, manifest, stage
+except ModuleNotFoundError:  # Direct execution places tools/, not the repo root, on sys.path.
+    from package_support import ROOT, ID, archive_tree, manifest, stage
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--output', type=Path, default=ROOT / 'work/dist')
-args = parser.parse_args()
-out = args.output
-out.mkdir(exist_ok=True)
-staged = ROOT / 'work/package' / ID
-staged.mkdir(parents=True, exist_ok=True)
-stage(staged)
-archive = out / 'keyboard-settings-0.1.0.tar.gz'
-with tarfile.open(archive, 'w:gz') as stream:
-    stream.add(staged, arcname=ID)
-(out / 'checksums.txt').write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + '  ' + archive.name + '\n')
-print(archive)
+
+def build(output=None):
+    out = Path(output or ROOT / "work/dist")
+    out.mkdir(parents=True, exist_ok=True)
+    staged = ROOT / "work/package" / ID
+    stage(staged)
+    archive = out / ("keyboard-settings-" + manifest()["version"] + ".tar.gz")
+    archive_tree(staged, archive, ID)
+    (out / "checksums.txt").write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name + "\n")
+    return archive
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=ROOT / "work/dist")
+    args = parser.parse_args()
+    print(build(args.output))

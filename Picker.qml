@@ -13,6 +13,11 @@ FocusScope {
     readonly property var rows: view.layouts || []
     readonly property var editorRows: view.configuredLayouts && view.configuredLayouts.length ? view.configuredLayouts : rows
     readonly property string editorShortcut: view.configuredShortcut || view.shortcut || "custom"
+    readonly property string editorDefault: editorRows.length ? editorRows[0].id : ""
+    readonly property var defaultOptions: editorRows.map(row => ({
+        value: row.id,
+        label: row.label + (row.variant ? " — " + row.variantLabel : "")
+    }))
     implicitHeight: body.implicitHeight
     activeFocusOnTab: true
 
@@ -39,6 +44,14 @@ FocusScope {
         next.splice(index, 1)
         save(next, editorShortcut)
     }
+    function makeDefault(id) {
+        let next = ids()
+        let index = next.indexOf(id)
+        if (index <= 0) return
+        let selected = next.splice(index, 1)[0]
+        next.unshift(selected)
+        save(next, editorShortcut)
+    }
     function add(layout, variant) {
         let id = layout.id + "/" + variant.id
         if (ids().indexOf(id) >= 0) return
@@ -61,10 +74,17 @@ FocusScope {
         })
         return list
     }
-    onViewChanged: shortcut.value = root.editorShortcut
+    onViewChanged: {
+        // Shared dropdowns own their value while selecting. Resynchronize
+        // after the derived editor state has followed a fresh helper reply.
+        Qt.callLater(function() {
+            defaultLayout.value = root.editorDefault
+            shortcut.value = root.editorShortcut
+        })
+    }
     Keys.priority: Keys.AfterItem
     Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape) { back(); event.accepted = true }
+        if (event.key === Qt.Key_Escape) { root.dismiss(); event.accepted = true }
         else if (event.key === Qt.Key_Down || event.key === Qt.Key_Up) {
             let item = root.Window.window ? root.Window.window.activeFocusItem : null
             if (item) {
@@ -206,10 +226,8 @@ FocusScope {
                             }
                             Text {
                                 width: parent.width
-                                visible: modelData.variant || index === 0
-                                text: (modelData.variant ? modelData.variantLabel : "")
-                                    + (modelData.variant && index === 0 ? " · " : "")
-                                    + (index === 0 ? "Default at login" : "")
+                                visible: !!modelData.variant
+                                text: modelData.variant ? modelData.variantLabel : ""
                                 textFormat: Text.PlainText
                                 elide: Text.ElideRight
                                 font.family: Style.font.family
@@ -240,6 +258,17 @@ FocusScope {
                     title: "+ Add layout"
                     enabled: root.editorRows.length < 4 && !root.view.problem && !root.backend.busy
                     onClicked: root.go("search")
+                }
+                Ui.Dropdown {
+                    id: defaultLayout
+                    objectName: "defaultLayout"
+                    width: parent.width
+                    label: "Default at login"
+                    value: root.editorDefault
+                    options: root.defaultOptions
+                    visible: root.editorRows.length > 1
+                    enabled: !root.view.problem && !root.backend.busy
+                    onChanged: function(value) { root.makeDefault(value) }
                 }
                 Ui.Dropdown {
                     id: shortcut
@@ -276,7 +305,7 @@ FocusScope {
                     onTextEdited: root.search = text
                     onAccepted: if (searchResults.count) searchResults.currentItem.clicked()
                     Keys.onDownPressed: { searchResults.forceActiveFocus(); searchResults.currentIndex = 0 }
-                    Keys.onEscapePressed: root.back()
+                    Keys.onEscapePressed: root.dismiss()
                     Accessible.name: "Search layouts and variants"
                 }
                 ListView {

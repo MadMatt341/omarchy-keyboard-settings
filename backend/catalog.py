@@ -1,5 +1,9 @@
 """Installed XKB registry, without locale-based language guesses."""
 from pathlib import Path
+import hashlib
+import json
+import os
+import tempfile
 import xml.etree.ElementTree as ET
 
 
@@ -19,9 +23,20 @@ def pair_id(layout, variant=""):
 
 
 class Catalog:
-    def __init__(self, registry=Path("/usr/share/X11/xkb/rules/evdev.xml")):
-        root = ET.parse(registry).getroot()
+    CACHE_SCHEMA = 1
+
+    def __init__(self, registry=Path("/usr/share/X11/xkb/rules/evdev.xml"), cache=None):
+        registry = Path(registry)
         extra = registry.with_name(registry.stem + ".extras.xml")
+        sources = self._source_hashes(registry, extra)
+        if cache is None:
+            base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+            cache = base / "omarchy/keyboard-settings/catalog-v1.json"
+        self.cache = Path(cache) if cache is not False else None
+        if self.cache and self._load_cache(sources):
+            return
+
+        root = ET.parse(registry).getroot()
         if extra.exists():
             for layout in ET.parse(extra).getroot().findall("./layoutList/layout"):
                 name = layout.findtext("configItem/name")
@@ -69,6 +84,53 @@ class Catalog:
                     "variantLabel": variant["label"], "code": row["code"],
                     "country": row["country"]}
             self.layouts.append(row)
+        if self.cache:
+            self._write_cache(sources)
+
+    @staticmethod
+    def _source_hashes(*paths):
+        result = {}
+        for path in paths:
+            if path.exists():
+                result[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return result
+
+    def _load_cache(self, sources):
+        try:
+            value = json.loads(self.cache.read_text())
+            if value.get("schema") != self.CACHE_SCHEMA or value.get("sources") != sources:
+                return False
+            layouts, pairs, groups = value["layouts"], value["pairs"], value["groups"]
+            if not isinstance(layouts, list) or not isinstance(pairs, dict) or not isinstance(groups, list):
+                return False
+            self.layouts, self.pairs, self.groups = layouts, pairs, set(groups)
+            return True
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+
+    def _write_cache(self, sources):
+        value = {"schema": self.CACHE_SCHEMA, "sources": sources, "layouts": self.layouts,
+                 "pairs": self.pairs, "groups": sorted(self.groups)}
+        try:
+            self.cache.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd, temporary = tempfile.mkstemp(prefix=".catalog-", dir=self.cache.parent)
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    json.dump(value, stream, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, self.cache)
+                directory = os.open(self.cache.parent, os.O_DIRECTORY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        except OSError:
+            # A cache must never make the installed registry unavailable.
+            return
 
     def resolve(self, pairs):
         if not isinstance(pairs, list) or not 1 <= len(pairs) <= 4:

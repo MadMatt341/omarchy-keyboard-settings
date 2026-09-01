@@ -3,8 +3,9 @@
   "id": "madmatt.keyboard-settings",
   "name": "Keyboard Settings",
   "version": "0.1.0",
-  "author": "Keyboard Settings for Omarchy contributors",
-  "description": "A minimal keyboard layout picker with character-preserving shortcuts",
+  "author": "madmatt and contributors",
+  "license": "MIT",
+  "description": "Native keyboard layout and variant picker with validated, restart-safe editing",
   "kinds": ["bar-widget"],
   "entryPoints": {"barWidget": "Keyboard.qml"},
   "barWidget": {

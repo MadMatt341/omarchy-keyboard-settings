@@ -5,11 +5,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import fcntl
+from unittest.mock import patch
 
 from backend.catalog import Catalog, SettingsError
 from backend.keymap import Keymap, validate
 from backend.devices import resolve, pick, active_index, bits, metadata, normalized
-from backend.session import Session, Paths, config_of, lua_string, equivalent
+from backend.session import Session, Paths, Hyprland, config_of, lua_string, equivalent
 from backend.session import atomic, encoded
 import base64
 
@@ -27,7 +29,7 @@ def record(name="typing-keyboard", group="usb-keyboard", **fields):
 class KeymapTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.catalog = Catalog()
+        cls.catalog = Catalog(cache=False)
 
     def test_polish_characters_and_shifted_characters(self):
         with Keymap(config_of(keyboard())) as m:
@@ -69,6 +71,35 @@ class KeymapTests(unittest.TestCase):
     def test_invalid_selections_do_not_reach_xkb(self):
         for bad in [[], ['us/'] * 2, ['unknown/'], ['us/'] * 5, [{}]]:
             with self.assertRaises(SettingsError): self.catalog.resolve(bad)
+
+
+class CatalogCacheTests(unittest.TestCase):
+    def registry(self, root, description="Test layout"):
+        path = Path(root) / "evdev.xml"
+        path.write_text("""<xkbConfigRegistry><layoutList><layout><configItem>
+          <name>tt</name><description>%s</description><shortDescription>TT</shortDescription>
+        </configItem><variantList/></layout></layoutList><optionList><group><configItem>
+          <name>grp</name></configItem><option><configItem><name>grp:alt_shift_toggle</name>
+        </configItem></option></group></optionList></xkbConfigRegistry>""" % description)
+        return path
+
+    def test_cache_hit_corruption_and_registry_invalidation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            registry = self.registry(folder)
+            cache = Path(folder) / "cache/catalog.json"
+            first = Catalog(registry, cache)
+            self.assertEqual(first.layouts[0]["label"], "Test layout")
+            self.assertEqual(cache.stat().st_mode & 0o777, 0o600)
+            with patch("backend.catalog.ET.parse", side_effect=AssertionError("cache miss")):
+                self.assertEqual(Catalog(registry, cache).pairs["tt/"]["code"], "TT")
+            cache.write_text("broken")
+            self.assertEqual(Catalog(registry, cache).layouts[0]["label"], "Test layout")
+            self.registry(folder, "Changed layout")
+            self.assertEqual(Catalog(registry, cache).layouts[0]["label"], "Changed layout")
+            unwritable = Path(folder) / "other/catalog.json"
+            with patch("backend.catalog.tempfile.mkstemp", side_effect=PermissionError("read only")):
+                self.assertEqual(Catalog(registry, unwritable).layouts[0]["label"], "Changed layout")
+            self.assertFalse(unwritable.exists())
 
 
 class DeviceTests(unittest.TestCase):
@@ -203,6 +234,30 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(self.paths.transaction.exists())
         self.assertEqual(self.hypr.calls, [])
 
+    def test_permission_failure_during_save_restores_owned_files(self):
+        original_atomic = atomic
+
+        def fail_profile(path, content):
+            if path == self.paths.profile:
+                raise PermissionError("injected read-only state directory")
+            return original_atomic(path, content)
+
+        with patch('backend.session.atomic', side_effect=fail_profile):
+            with self.assertRaisesRegex(SettingsError, 'previous files were restored'):
+                self.save()
+        self.assertFalse(self.paths.override.exists())
+        self.assertFalse(self.paths.profile.exists())
+        self.assertFalse(self.paths.transaction.exists())
+        self.assertEqual(self.hypr.calls, [])
+
+    def test_corrupt_saved_state_is_refused_without_mutation(self):
+        self.paths.profile.parent.mkdir(parents=True)
+        self.paths.profile.write_text('{broken')
+        with self.assertRaisesRegex(SettingsError, 'Recover the saved settings'):
+            self.session.status()
+        self.assertFalse(self.paths.override.exists())
+        self.assertEqual(self.hypr.calls, [])
+
     def test_recovery_preserves_an_external_file_edit(self):
         candidate = b'-- candidate\n'
         transaction = {'kind': 'deferred-save', 'token': 'fixture', 'profile': None, 'override': None,
@@ -231,6 +286,27 @@ class TransactionTests(unittest.TestCase):
         status = self.session.status('typing-keyboard')
         self.session.switch(1, status['revision'])
         self.assertEqual(self.hypr.calls, [('switch', 'typing-keyboard'), ('switch', 'typing-keyboard-aux')])
+
+    def test_lock_wait_is_bounded(self):
+        self.paths.lock_timeout = 0.03
+        self.paths.root.mkdir(parents=True, exist_ok=True)
+        with (self.paths.root / "lock").open("a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaisesRegex(SettingsError, "still running"):
+                with self.paths.lock():
+                    self.fail("contended lock was acquired")
+
+    def test_reset_removes_orphan_profile_without_desktop_reload(self):
+        atomic(self.paths.profile, encoded({"profiles": {}}))
+        self.session.reset_saved()
+        self.assertFalse(self.paths.profile.exists())
+        self.assertEqual(self.hypr.calls, [])
+
+    def test_desktop_timeout_and_missing_command_are_bounded_errors(self):
+        for failure in (subprocess.TimeoutExpired('hyprctl', 8), OSError('missing')):
+            with patch('backend.session.subprocess.run', side_effect=failure):
+                with self.assertRaisesRegex(SettingsError, 'did not respond'):
+                    Hyprland().devices()
 
 
 if __name__ == '__main__': unittest.main()
