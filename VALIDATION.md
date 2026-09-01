@@ -391,3 +391,54 @@ NO-GO for publication.** The installed checkout still needs the exact commit and
 idempotent loader refresh, followed by another clean-login/reboot acceptance.
 Physical Polish typing and the remaining manual/system acceptance items are still
 open. No repository push, tag, release or marketplace submission occurred.
+
+## Second reboot and child-status correction — 2026-09-01
+
+The second full-system reboot also left the saved candidate pending. Redacted
+snapshots under `work/live-acceptance/b3297a1/` prove that both the boot identifier
+and compositor instance changed. The installed checkout was exact and clean at
+`ee2051a679ba73ff6086cab785d1c8523283926f`; loader, shell and receipt hashes were
+unchanged; loader, active and pending data remained mode `0600`; and the valid
+two-interface active and pending files still differed. Runtime remained `US,
+Polish, Danish` with US active, while the saved candidate remained `Polish, US /
+both Alt` with `pendingRestart: true`. The plugin was enabled, the stock indicator
+was disabled and `hyprctl configerrors` was empty. A controlled config reload also
+left the old runtime and active file unchanged.
+
+A standalone run of the exact loader against private copies of those live
+multi-interface files promoted them correctly, narrowing the fault to Hyprland's
+embedded Lua process. A temporary redacted toggle probe then established all of
+the following without recording the instance value or device identities:
+
+- current and saved instance identifiers were both present and different;
+- pending parsing, temporary-file creation and writing succeeded;
+- `os.execute` reported failure for `chmod`, `sync` and `ln`, although the file
+  mode changed to `0600` and the hard link existed with the pending inode;
+- reading a success token from `io.popen` proved file sync and directory sync;
+- Lua's direct atomic rename succeeded.
+
+The promotion therefore stopped on an unreliable child exit status after its
+maintenance command had actually completed. The probe and all probe files were
+removed immediately. Commit `01303e74d5df7c10a1b9cbb0eadf65ab62defc8d`
+corrects this under release-input fingerprint
+`e49a549cce023d2b3635dac3e620541dcc96dd5dfc41c3d612c8be5934ec941c`.
+The loader now reads a success token emitted only after private permissions and
+file sync succeed, verifies the temporary bytes, atomically renames them, and
+requires a second success token after directory sync. It ignores the unreliable
+close status itself. A missing token leaves active data untouched.
+
+| Corrected gate | Result |
+| --- | --- |
+| Python backend/integration | **52 passed**. The real loader test now uses two device rows, simulates failed `os.execute` and failed `pclose` status while proving promotion, and separately proves that a missing success token preserves active data. |
+| Performance | Passed: catalog cold p95 113.8 ms, warm p95 78.8 ms, one-layout save p95 24.9 ms, four-layout save p95 72.7 ms, search p95 0.062 ms and five-minute-equivalent idle cost 0.378% of one core. |
+| Native UI | **15 passed, 0 failed**; search p95 12 ms, 200-refresh storm 203 ms, RSS changed by -144 KiB, no file-descriptor growth and no orphan helper. |
+| Distribution | Fresh `0.1.0` archive build and Omarchy validation passed; the archive contained no bytecode, cache or probe files, and `git diff --check` passed. |
+| Live capability probe | Instance comparison, private write, file sync, directory sync and atomic rename all succeeded in Hyprland's embedded Lua runtime when completion was proven independently of the misleading child exit status. |
+
+**Current verdict: GO for offline validation of the child-status correction;
+NO-GO for publication.** The exact commit must still be installed, its idempotent
+loader refresh must preserve the pending candidate and current runtime, and a
+third clean reboot must prove promotion and login-default behavior. Physical
+Polish typing, both Alt press orders and the remaining manual/system acceptance
+items are still open. No repository push, tag, release or marketplace submission
+occurred.
