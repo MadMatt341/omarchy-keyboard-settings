@@ -618,3 +618,43 @@ validator; and `git diff --check`.
 real popup with this exact candidate, verify the corrected ordering and final-layout
 invariant live, and restore the intended keyboard profile before reconsidering the
 removal gate.
+
+### Staged-removal live retest — 2026-09-02
+
+The exact two-layout case was repeated through the real popup with Polish active.
+The UI first changed to surviving English and then removed Polish. Runtime and
+configured state both read back as sole English, with no pending restart or
+reported problem. The monitored system journal showed neither the prior
+`keymap: dup failed: Bad file descriptor` error nor a shell exit/relaunch.
+
+The resulting sole-layout editor revealed a smaller presentation regression: its
+disabled × remained visible. Commit `ca39520d12cd8e1dc38f8212b771ed836a8365fc`
+hides that control and releases its row space. The 17-test native suite passed and
+the inspected `editor-saved.png` capture shows English without an ×. The full
+60-test Python suite, fresh package, Omarchy validator and `git diff --check` also
+passed under the candidate fingerprint above.
+
+The installed Git checkout was fast-forwarded to the correction. Quickshell
+reloaded the local plugin without changing its process ID. The pre-test
+`US, Polish` profile was then restored with Polish active.
+
+A following real-popup removal disproved the apparent crash fix. At 00:32:50,
+removing non-active English from `US, Polish` requested sole Polish while Polish
+was already active. The transaction record proves there was no active-layout
+switch to stage: previous runtime was `US, Polish` at index 1 and the requested
+runtime was Polish at index 0 on both interfaces. Forty-six milliseconds after
+the owned files were written, Hyprland logged eight `keymap: dup failed: Bad file
+descriptor` errors, disconnected browser and Quickshell clients, and the shell
+exited with status 255 before its supervisor relaunched it. There was no core dump,
+OOM event or zero-layout request. The saved active, pending and profile files now
+match the requested sole-Polish state and no transaction record remains.
+
+This establishes that the failure is the live keymap reload from two layouts to
+one, not specifically removal of the active layout or a redundant pre-reload
+switch. A completed physical group switch cannot make that keymap replacement
+safe. The final × presentation fix remains valid, but the removal path is still
+release-blocking.
+
+**Current verdict: NO-GO for publication and unresolved for live `2 → 1`
+removal.** Parked for a design that avoids the unsafe live reload while preserving
+the sole-layout invariant. No further live keyboard mutation was performed.
