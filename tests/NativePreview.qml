@@ -21,6 +21,7 @@ Scope {
                 activeLayouts: [], problem: "", devices: [], device: "preview", revision: "preview"})
             fake.error = ""
             fake.saves = []
+            fake.switches = []
             fake.animationsEnabled = true
             preview.dismissCount = 0
             picker.reset()
@@ -97,6 +98,8 @@ Scope {
             compare(remove.text, "×")
             compare(remove.enabled, true)
             mouseClick(remove)
+            tryCompare(fake, "switchCount", 1)
+            compare(fake.switches[0], 0)
             tryCompare(fake, "saveCount", 1)
             compare(fake.saves[0].layouts.join(","), "us/")
             compare(fake.saves[0].shortcut, "both-alt")
@@ -116,6 +119,19 @@ Scope {
             })
             tryVerify(() => captured)
             console.log("NATIVE_DIRECT_EDIT_OK")
+        }
+        function test_non_active_removal_saves_without_staging() {
+            picker.go("editor")
+            wait(20)
+            let remove = findChild(picker, "removeLayout0")
+            verify(remove)
+            mouseClick(remove)
+            tryCompare(fake, "saveCount", 1)
+            compare(fake.switchCount, 0)
+            compare(fake.saves[0].layouts.join(","), "pl/")
+            compare(fake.state.active, 0)
+            compare(fake.current.id, "pl/")
+            console.log("NATIVE_NON_ACTIVE_REMOVE_OK")
         }
         function test_default_layout_selection() {
             picker.go("editor")
@@ -311,9 +327,17 @@ Scope {
         readonly property var current: state.layouts[state.active]
         property string error: ""
         property var saves: []
+        property var switches: []
         readonly property int saveCount: saves.length
+        readonly property int switchCount: switches.length
         signal completed(string name)
-        function switchTo(index) { state = Object.assign({}, state, {active: index}); completed("switch") }
+        signal refreshed(bool ok)
+        function switchTo(index) {
+            switches = switches.concat([index])
+            state = Object.assign({}, state, {active: index})
+            completed("switch")
+            Qt.callLater(function() { refreshed(true) })
+        }
         function save(ids, shortcut) {
             saves = saves.concat([{layouts: ids.slice(), shortcut: shortcut}])
             let all = baseLayouts.concat([{id: "de/", layout: "de", variant: "", label: "German", variantLabel: "Standard", code: "DE", country: "de"}])

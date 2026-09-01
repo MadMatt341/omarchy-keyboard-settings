@@ -15,8 +15,11 @@ owning files and [VALIDATION.md](../VALIDATION.md) for evidence and open live ch
 There is no typing trial, timer, Keep, or Revert step. Layout-set and shortcut
 edits are validated and applied immediately through the plugin-owned fixed loader.
 The picker and editor both show the confirmed live list after the helper readback.
-If an edit removes the active layout, every verified typing interface is switched
-to a surviving layout before the keymap is reloaded.
+If an edit removes the active layout, the UI first completes an ordinary switch
+to an adjacent surviving layout and waits for a fresh verified status readback.
+Only then does a separate save replace the keymap. The save does not emit another
+switch immediately before reload when every typing interface already confirms the
+survivor.
 
 The first saved layout is the login default. Adding appends to the list, so the
 existing default stays first. Choosing another default moves that exact
@@ -110,6 +113,11 @@ validates every target. It preserves the active layout identity when that layout
 survives. If it is being removed, it chooses the first requested layout that is
 already live; replacing every live layout in one step is refused, so a new layout
 must be added before the last old one is removed.
+
+The native editor normally separates active removal into a completed `switch`
+action, a verified `status` readback, and then the `save` action. `Session.save()`
+retains its own survivor selection for non-UI callers and recovery, but skips its
+pre-reload switch when every verified interface is already at the required index.
 
 The save records previous file bytes and per-interface runtime configuration in a
 private recovery transaction. It first synchronizes all verified interfaces to

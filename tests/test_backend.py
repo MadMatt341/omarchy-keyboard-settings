@@ -327,8 +327,7 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(len(list((self.paths.root / 'backups').glob('*/recovery.json'))), 1)
         self.assertTrue(all(device['layout'] == 'us,de' for device in self.hypr.items[:2]))
         self.assertTrue(all(device['active_layout_index'] == 0 for device in self.hypr.items[:2]))
-        self.assertEqual(self.hypr.calls, [('switch', 'typing-keyboard'), ('switch', 'typing-keyboard-aux'),
-                                          ('reload', ''), ('switch', 'typing-keyboard'),
+        self.assertEqual(self.hypr.calls, [('reload', ''), ('switch', 'typing-keyboard'),
                                           ('switch', 'typing-keyboard-aux')])
         self.assertFalse(self.paths.transaction.exists())
         status = self.session.status()
@@ -355,11 +354,28 @@ class TransactionTests(unittest.TestCase):
         self.assertTrue(all(device['layout'] == 'us,de' and device['active_layout_index'] == 0
                             for device in self.hypr.items[:2]))
 
+    def test_confirmed_survivor_is_not_switched_again_before_reload(self):
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        status = self.session.status()
+        self.session.switch(0, status['revision'])
+        self.hypr.calls.clear()
+        self.hypr.switches.clear()
+
+        status = self.session.status()
+        self.session.save(['us/'], 'both-alt', status['revision'])
+
+        self.assertEqual(self.hypr.calls[0], ('reload', ''))
+        self.assertNotIn(('switch', 'typing-keyboard'), self.hypr.calls[:1])
+        self.assertTrue(all(device['layout'] == 'us' and device['active_layout_index'] == 0
+                            for device in self.hypr.items[:2]))
+
     def test_reordering_preserves_the_active_layout_identity(self):
         for device in self.hypr.items[:2]:
             device['active_layout_index'] = 1
         self.save(['pl/', 'us/'])
-        self.assertEqual(self.hypr.switches[:2], [('typing-keyboard', 1), ('typing-keyboard-aux', 1)])
+        self.assertEqual(self.hypr.calls[0], ('reload', ''))
+        self.assertEqual(self.hypr.switches[:2], [('typing-keyboard', 0), ('typing-keyboard-aux', 0)])
         self.assertTrue(all(device['layout'] == 'pl,us' and device['active_layout_index'] == 0
                             for device in self.hypr.items[:2]))
         status = self.session.status()
@@ -427,7 +443,7 @@ class TransactionTests(unittest.TestCase):
     def test_post_reload_switch_failure_restores_files_and_runtime(self):
         before = {path: self.session.file_blob(path) for path in
                   (self.paths.profile, self.paths.active, self.paths.pending)}
-        self.hypr.fail_switch_at = 3
+        self.hypr.fail_switch_at = 1
         with self.assertRaisesRegex(SettingsError, 'previous setup was restored'):
             self.save(['pl/', 'us/'])
         self.assertEqual({path: self.session.file_blob(path) for path in before}, before)

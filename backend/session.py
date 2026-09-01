@@ -407,8 +407,13 @@ class Session:
             atomic(self.paths.transaction, encoded(transaction))
             try:
                 # Synchronize every interface on a layout that survives before
-                # removing the active layout or replacing any live keymap.
-                self._switch_members(snap["group"]["members"], before_index)
+                # removing the active layout or replacing any live keymap. The
+                # UI performs active removal as a separate switch/readback/save
+                # sequence; do not emit a duplicate switch immediately before
+                # reload when that first operation is already confirmed.
+                if any(device.get("active_layout_index") != before_index
+                       for device in snap["group"]["members"]):
+                    self._switch_members(snap["group"]["members"], before_index)
                 atomic(self.paths.active, written_data)
                 atomic(self.paths.pending, written_data)
                 atomic(self.paths.profile, written_profile)

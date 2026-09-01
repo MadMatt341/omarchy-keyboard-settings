@@ -582,21 +582,38 @@ push, tag, release or marketplace submission occurred.
 ### Parked live removal regressions — 2026-09-02
 
 Subsequent manual popup use found two release-blocking removal regressions that
-supersede the removal conclusion above until they are reproduced and corrected:
+supersede the removal conclusion above. The preserved transaction records and
+system journal confirmed the exact sequence:
 
-- removing the currently selected layout causes a disruptive visible/runtime
-  transition, despite the backend transaction's successful isolated acceptance;
-- the live UI can reach a crash after removal of the last layout, even though the
-  editor guard and helper contract are intended to preserve at least one layout.
+- at 00:05:12, removing active Danish from `US, Polish, Danish` selected US and
+  completed, exposing the abrupt active-removal transition;
+- at 00:05:19, removing active US from `US, Polish` requested a valid one-layout
+  Polish result, but Hyprland logged repeated `keymap: dup failed: Bad file
+  descriptor` errors, disconnected Quickshell, and the supervised shell exited
+  with status 255 before relaunching one second later.
 
-The active-layout path should be investigated as an ordering problem: switch every
-verified typing interface to a surviving layout and confirm that switch before
-removing the selected layout from the live keymap. The final-layout path must be
-blocked in both the UI and helper regardless of stale UI state, rapid actions or
-delayed readback. Existing fixture coverage for a disabled final remove button is
-not sufficient evidence for either live path.
+There was no core dump, OOM event or zero-layout request. The sole-layout guard
+held in both the editor and helper; the failure occurred during the reload that
+left one layout. The old save sequence did switch and synchronously read back the
+survivor, but then emitted another switch and reloaded inside the same helper
+operation. That is not equivalent to a physical shortcut, a completed UI
+readback, and a later edit.
+
+Candidate fingerprint
+`a6ab99aee2a47e1dd1fadf8d03d6231ed9ceee0358ad0d8796592b36406dac44`
+turns active removal into separate `switch` → `status` → `save` actions. It chooses
+the adjacent survivor, keeps the editor open, disables concurrent editor actions,
+and skips the save's pre-reload switch once every verified interface already
+confirms that survivor. Non-active removal remains a direct save and the helper's
+independent survivor and rollback protections remain intact.
+
+Offline validation passes: **60 backend/integration tests**, including the new
+no-redundant-switch assertion; **17 native UI tests**, including staged active
+removal, direct non-active removal and disabled final removal; native capture and
+resource checks; performance gates; a fresh reproducible package; Omarchy's plugin
+validator; and `git diff --check`.
 
 **Current verdict: NO-GO for publication.** Reproduce both failures through the
-real popup, add regression coverage for their actual cause, verify the corrected
-ordering and final-layout invariant live, and restore the intended keyboard profile
-before reconsidering the removal gate.
+real popup with this exact candidate, verify the corrected ordering and final-layout
+invariant live, and restore the intended keyboard profile before reconsidering the
+removal gate.

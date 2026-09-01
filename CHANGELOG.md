@@ -5,6 +5,8 @@
 - Native Quickshell layout picker, editor, installed-XKB search and device picker.
 - Immediate, validated layout/variant/default/shortcut saves through a fixed Lua
   loader, with surviving-layout selection and file/runtime rollback.
+- Two-phase active-layout removal confirms an ordinary survivor switch before a
+  separate keymap save and never permits removal of the sole remaining layout.
 - Verified multi-interface runtime switching and ambiguity reporting.
 - Atomic recovery, bounded locking and source-keyed XKB catalog cache.
 - Keyboard-only navigation, reduced-motion support and fixture-native UI checks.

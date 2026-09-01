@@ -9,6 +9,7 @@ FocusScope {
     signal dismiss()
     property string page: "picker"
     property string search: ""
+    property var stagedRemoval: null
     readonly property var view: backend.state
     readonly property var rows: view.layouts || []
     readonly property var editorRows: view.configuredLayouts && view.configuredLayouts.length ? view.configuredLayouts : rows
@@ -18,6 +19,7 @@ FocusScope {
         value: row.id,
         label: row.label + (row.variant ? " — " + row.variantLabel : "")
     }))
+    readonly property bool editingBusy: backend.busy || stagedRemoval !== null
     implicitHeight: body.implicitHeight
     activeFocusOnTab: true
 
@@ -37,12 +39,33 @@ FocusScope {
         else go(page === "editor" || page === "devices" ? "picker" : "editor")
     }
     function ids() { return editorRows.map(row => row.id) }
-    function save(next, shortcutValue) { backend.save(next, shortcutValue || editorShortcut) }
+    function save(next, shortcutValue) {
+        if (!stagedRemoval) backend.save(next, shortcutValue || editorShortcut)
+    }
     function remove(index) {
-        if (editorRows.length <= 1) return
+        if (editorRows.length <= 1 || stagedRemoval) return
         let next = ids()
+        let removed = next[index]
         next.splice(index, 1)
-        save(next, editorShortcut)
+        let active = view.active >= 0 && view.active < rows.length ? rows[view.active].id : ""
+        if (removed !== active) {
+            save(next, editorShortcut)
+            return
+        }
+
+        // Make an active removal two separate compositor operations. A fresh
+        // status readback gives the shell time to consume the ordinary layout
+        // switch before the later save replaces the live keymap.
+        let adjacent = index < editorRows.length - 1 ? index + 1 : index - 1
+        let survivor = editorRows[adjacent].id
+        let liveIndex = rows.findIndex(row => row.id === survivor)
+        if (liveIndex < 0) {
+            backend.error = "Switch to a layout that will remain before removing this one."
+            return
+        }
+        stagedRemoval = {phase: "switching", layouts: next,
+            shortcut: editorShortcut, survivor: survivor}
+        backend.switchTo(liveIndex)
     }
     function makeDefault(id) {
         let next = ids()
@@ -96,7 +119,28 @@ FocusScope {
     }
     Connections {
         target: root.backend
-        function onCompleted(name) { if (name === "switch") root.dismiss() }
+        function onCompleted(name) {
+            if (name !== "switch") return
+            if (!root.stagedRemoval) {
+                root.dismiss()
+                return
+            }
+            root.stagedRemoval = Object.assign({}, root.stagedRemoval, {phase: "waiting"})
+        }
+        function onRefreshed(ok) {
+            if (!root.stagedRemoval || root.stagedRemoval.phase !== "waiting") return
+            let active = root.view.active >= 0 && root.view.active < root.rows.length
+                ? root.rows[root.view.active].id : ""
+            if (!ok || active !== root.stagedRemoval.survivor || root.view.problem) {
+                if (!root.backend.error)
+                    root.backend.error = "The surviving layout was not confirmed. Nothing was removed."
+                root.stagedRemoval = null
+                return
+            }
+            let removal = root.stagedRemoval
+            root.stagedRemoval = null
+            root.backend.save(removal.layouts, removal.shortcut)
+        }
     }
 
     Flickable {
@@ -246,7 +290,7 @@ FocusScope {
                             width: Style.spacing.controlHeight
                             height: Style.spacing.controlHeight
                             foreground: Color.popups.text
-                            enabled: root.editorRows.length > 1 && !root.backend.busy && !root.view.problem
+                            enabled: root.editorRows.length > 1 && !root.editingBusy && !root.view.problem
                             Accessible.name: "Remove " + modelData.label
                             onClicked: root.remove(index)
                         }
@@ -256,7 +300,7 @@ FocusScope {
                     objectName: "addLayout"
                     width: parent.width
                     title: "+ Add layout"
-                    enabled: root.editorRows.length < 4 && !root.view.problem && !root.backend.busy
+                    enabled: root.editorRows.length < 4 && !root.view.problem && !root.editingBusy
                     onClicked: root.go("search")
                 }
                 Ui.Dropdown {
@@ -267,7 +311,7 @@ FocusScope {
                     value: root.editorDefault
                     options: root.defaultOptions
                     visible: root.editorRows.length > 1
-                    enabled: !root.view.problem && !root.backend.busy
+                    enabled: !root.view.problem && !root.editingBusy
                     onChanged: function(value) { root.makeDefault(value) }
                 }
                 Ui.Dropdown {
@@ -276,7 +320,7 @@ FocusScope {
                     label: "Switch with"
                     value: root.editorShortcut
                     options: root.editorShortcut === "custom" ? [{value: "custom", label: "Your current shortcut"}].concat(root.backend.shortcuts) : root.backend.shortcuts
-                    enabled: !root.view.problem && !root.backend.busy
+                    enabled: !root.view.problem && !root.editingBusy
                     onChanged: function(value) { root.save(root.ids(), value) }
                 }
                 Text {

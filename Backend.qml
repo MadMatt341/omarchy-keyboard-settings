@@ -11,16 +11,19 @@ QtObject {
     property string error: ""
     property string eventDevice: ""
     property bool pending: false
-    property bool busy: action.running
+    property bool busy: action.running || query.running
+    property bool querySucceeded: false
     property string actionName: ""
     property bool animationsEnabled: true
     property string helper: decodeURIComponent(Qt.resolvedUrl("backend/keyboard_settings.py").toString().replace(/^file:\/\//, ""))
     readonly property var current: state.active >= 0 && state.active < state.layouts.length ? state.layouts[state.active] : null
     signal completed(string name)
+    signal refreshed(bool ok)
 
     function refresh() {
         if (query.running || action.running) { pending = true; return }
         pending = false
+        querySucceeded = false
         query.command = ["python3", helper, "status", JSON.stringify({eventDevice: eventDevice})]
         // The helper persists a verified source across shell reloads. Send an
         // event once; resending an old name would override a later observation.
@@ -65,11 +68,15 @@ QtObject {
             waitForEnd: true
             onStreamFinished: {
                 let value = root.reply(text)
+                root.querySucceeded = value.ok
                 if (value.ok) root.state = value.data
                 else root.state = Object.assign({}, root.state, {active: -1, activeLayouts: [], revision: ""})
             }
         }
-        onRunningChanged: if (!running && root.pending) Qt.callLater(root.refresh)
+        onRunningChanged: if (!running) {
+            root.refreshed(root.querySucceeded)
+            if (root.pending) Qt.callLater(root.refresh)
+        }
     }
     property Process registry: Process {
         command: ["python3", root.helper, "catalog"]
