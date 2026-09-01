@@ -600,16 +600,17 @@ operation. That is not equivalent to a physical shortcut, a completed UI
 readback, and a later edit.
 
 Candidate fingerprint
-`a6ab99aee2a47e1dd1fadf8d03d6231ed9ceee0358ad0d8796592b36406dac44`
+`8d4084c762c0c3064840f56ac6e4c5d5b711bac2d8d4938d9f31f6df4945042a`
 turns active removal into separate `switch` → `status` → `save` actions. It chooses
 the adjacent survivor, keeps the editor open, disables concurrent editor actions,
 and skips the save's pre-reload switch once every verified interface already
 confirms that survivor. Non-active removal remains a direct save and the helper's
-independent survivor and rollback protections remain intact.
+independent survivor and rollback protections remain intact. The sole-layout row
+now omits the × entirely instead of presenting an unavailable removal affordance.
 
 Offline validation passes: **60 backend/integration tests**, including the new
 no-redundant-switch assertion; **17 native UI tests**, including staged active
-removal, direct non-active removal and disabled final removal; native capture and
+removal, direct non-active removal and a hidden final remove control; native capture and
 resource checks; performance gates; a fresh reproducible package; Omarchy's plugin
 validator; and `git diff --check`.
 

@@ -256,8 +256,8 @@ FocusScope {
                         Column {
                             id: editorLabels
                             anchors.left: parent.left
-                            anchors.right: removeButton.left
-                            anchors.rightMargin: Style.spacing.controlGap
+                            anchors.right: removeButton.visible ? removeButton.left : parent.right
+                            anchors.rightMargin: removeButton.visible ? Style.spacing.controlGap : 0
                             anchors.verticalCenter: parent.verticalCenter
                             Text {
                                 width: parent.width
@@ -287,10 +287,11 @@ FocusScope {
                             anchors.verticalCenter: parent.verticalCenter
                             text: "×"
                             focusable: true
-                            width: Style.spacing.controlHeight
+                            visible: root.editorRows.length > 1
+                            width: visible ? Style.spacing.controlHeight : 0
                             height: Style.spacing.controlHeight
                             foreground: Color.popups.text
-                            enabled: root.editorRows.length > 1 && !root.editingBusy && !root.view.problem
+                            enabled: visible && !root.editingBusy && !root.view.problem
                             Accessible.name: "Remove " + modelData.label
                             onClicked: root.remove(index)
                         }

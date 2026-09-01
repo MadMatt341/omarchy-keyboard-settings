@@ -8,7 +8,7 @@ owning files and [VALIDATION.md](../VALIDATION.md) for evidence and open live ch
 | Page | Result |
 | --- | --- |
 | `picker` | Shows the layouts reported by the running compositor. Clicking one switches all verified typing interfaces with `switchxkblayout` and closes the popup. A separator precedes **Edit layouts…**. |
-| `editor` | Shows the saved configuration. Each layout has a × remove button; the final layout cannot be removed. **Add layout** opens search. With multiple layouts, the default-at-login selector is shown. Default and shortcut changes save immediately. |
+| `editor` | Shows the saved configuration. With multiple layouts, each row has a × remove button; the sole remaining row has no remove control. **Add layout** opens search. With multiple layouts, the default-at-login selector is shown. Default and shortcut changes save immediately. |
 | `search` | Searches installed layout/language/country metadata and variant labels. Selecting a result adds it and saves immediately. Already configured pairs are omitted. |
 | `devices` | Chooses a verified physical typing keyboard. Unresolved interfaces are disabled. Preference is saved without changing keyboard settings. |
 

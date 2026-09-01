@@ -106,6 +106,8 @@ Scope {
             tryVerify(() => picker.editorRows.length === 1)
             let remainingRemove = findChild(picker, "removeLayout0")
             verify(remainingRemove)
+            compare(remainingRemove.visible, false)
+            compare(remainingRemove.width, 0)
             compare(remainingRemove.enabled, false)
             compare(fake.state.layouts.length, 1)
             compare(fake.state.layouts[0].id, "us/")
