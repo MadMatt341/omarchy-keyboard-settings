@@ -304,3 +304,48 @@ within an authorized live-testing task.
 - [ ] Check popup bounds, focus, Tab/arrows/Enter/Escape and text entry on every bar edge and with the user's scaling.
 - [ ] Check unplug/replug and replacement keyboards without applying stale state to a different device.
 - [ ] Check coexistence with the user's IME, if present. The picker does not manage IME engines.
+
+## Live deferred-save blocker and correction — 2026-09-01
+
+Authorized acceptance began from local release-candidate commit
+`1fd18663ccda48014fbfef9f6af5bca3f57f0b38`. The copied development installation
+was prepared with retained settings, removed through Omarchy, cloned from the
+local Git repository and activated. The installed checkout was clean at the exact
+commit, the update command reported it current, shell restart preserved activation,
+and a live Polish → Danish → Polish switch round trip verified readback while the
+saved profile, generated override and bar configuration remained unchanged.
+
+The first live deferred-save round trip found a release blocker. Removing Danish
+from the saved list also changed the runtime layout set. Omarchy's
+`default.hypr.toggles` loads every Lua file in its state directory with reload
+semantics, so atomically replacing the generated Lua override caused Hyprland to
+auto-reload even though the helper issued no reload command. The failure handler
+restored the original `US, Polish, Danish / both Alt` profile and the live session
+returned to Polish. This invalidated the earlier isolated claim that an override
+file write alone could remain deferred.
+
+Commit `a8b7da5ca7b4e6b07eb948ec110f8b10fb79d53d` corrects the boundary under
+release-input fingerprint
+`fd40a06e3306904909e65f38a5b63a139a0c22adce899353fe6de86bff740946`.
+Activation now installs a fixed Lua loader. Saves atomically update only the JSON
+profile and strict, hex-encoded `pending-v1.conf`, outside Hyprland's watched Lua
+directory. The loader reads `active-v1.conf` during configuration and promotes a
+validated pending file atomically only on `hyprland.shutdown`, so unrelated config
+reloads retain the active configuration and the next session receives the edit.
+
+| Corrected gate | Result |
+| --- | --- |
+| Python backend/integration | **51 passed**. New coverage executes the real Lua loader with a stub Hyprland API, proves repeated config loads continue to use active data, invokes the shutdown callback, verifies promotion and mode `0600`, and then proves the next load uses the promoted data. Valid-but-wrong JSON state is also refused. |
+| Performance | Health check passed: warm catalog p95 78.9 ms, one-layout save p95 27.2 ms, four-layout save p95 78.4 ms, search p95 0.07 ms and five-minute-equivalent idle cost 0.370% of one core. |
+| Native UI | **15 passed, 0 failed**; search p95 10 ms, 200-refresh storm 204 ms, RSS growth 12 KiB, no file-descriptor growth and no orphan helper. |
+| Distribution | Clean package build and Omarchy validation passed with the new backend module; `git diff --check` passed before commit. |
+| Live update and migration | Omarchy fast-forwarded the Git checkout to `a8b7da5`; prepare-remove retained settings; re-add installed an exact clean checkout; activation migrated the matching legacy profile. The loader bytes matched source, loader/active/pending modes were `0600`, active and pending contained the same two interface rows, `hyprctl configerrors` was empty, the replacement was enabled and the stock indicator disabled. |
+| Live deferred edits | Removing/re-adding Danish, moving Polish to the login-default position, changing the saved shortcut to none, and restoring the original profile all reported the correct pending state while the three-layout runtime set stayed unchanged. The original profile, fixed loader, active data and pending data were restored byte-for-byte. An attempted Alt+Shift configuration was correctly refused as unsafe for this live map. |
+
+**Current verdict: GO for the corrected pre-reboot candidate; NO-GO for
+publication.** The live auto-reload blocker is resolved on the current session.
+The actual shutdown promotion and next-session application remain unverified,
+along with physical Polish typing and both Alt press orders, manual popup behavior
+on every bar edge/scale, device replacement, IME coexistence, another-account
+lifecycle, private beta, CI and marketplace checks. No repository push, tag,
+release or marketplace submission occurred.
