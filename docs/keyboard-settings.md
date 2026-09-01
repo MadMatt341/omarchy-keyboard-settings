@@ -118,7 +118,11 @@ the saving session, including configuration reloads. Hyprland creates its instan
 signature before loading Lua. During the first configuration parse of a different
 session, the loader validates and atomically promotes pending data before it
 registers the device declarations. This covers sign-out/login and reboot without
-depending on a graceful shutdown event or a second configuration reload.
+depending on a graceful shutdown event or a second configuration reload. The
+promotion uses a private temporary file, file sync, byte readback, atomic rename
+and directory sync. Hyprland owns child-process exit handling, so the loader
+verifies the maintenance commands through a success token on their output rather
+than trusting Lua's unreliable child exit status.
 
 Ordinary picker switching is separate. It calls only `switchxkblayout` for layouts
 already loaded by the running compositor, verifies each typing interface, and

@@ -78,6 +78,17 @@ local function shell_quote(value)
   return "'" .. value:gsub("'", "'\\''") .. "'"
 end
 
+local function command_succeeds(command)
+  -- Hyprland owns SIGCHLD and can reap this process before Lua's pclose(), so
+  -- os.execute()/handle:close() may report failure after a successful command.
+  -- Read a token printed only when every shell step completed instead.
+  local opened, handle = pcall(io.popen, command .. " && printf keyboard-settings-ok")
+  if not opened or not handle then return false end
+  local proof = handle:read("*a")
+  handle:close()
+  return proof == "keyboard-settings-ok"
+end
+
 local function write_active(data)
   local temporary = active_path .. ".session"
   local output = io.open(temporary, "wb")
@@ -87,12 +98,17 @@ local function write_active(data)
   output:close()
   if not written then os.remove(temporary); return false end
 
-  local secured = os.execute("chmod 600 -- " .. shell_quote(temporary)
+  local secured = command_succeeds("chmod 600 -- " .. shell_quote(temporary)
     .. " && sync -f " .. shell_quote(temporary) .. " >/dev/null 2>&1")
-  if secured ~= true and secured ~= 0 then os.remove(temporary); return false end
+  if not secured then os.remove(temporary); return false end
+
+  local check = io.open(temporary, "rb")
+  local checked = check and check:read("*a") or nil
+  if check then check:close() end
+  if checked ~= data then os.remove(temporary); return false end
+
   if not os.rename(temporary, active_path) then os.remove(temporary); return false end
-  os.execute("sync -f " .. shell_quote(root) .. " >/dev/null 2>&1")
-  return true
+  return command_succeeds("sync -f " .. shell_quote(root) .. " >/dev/null 2>&1")
 end
 
 local active = read_data(active_path)

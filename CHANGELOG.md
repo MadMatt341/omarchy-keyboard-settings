@@ -4,7 +4,7 @@
 
 - Native Quickshell layout picker, editor, installed-XKB search and device picker.
 - Deferred, validated layout/variant/default/shortcut saves through a fixed Lua
-  loader and non-executable pending data promoted at session shutdown.
+  loader and non-executable pending data promoted at the next compositor session.
 - Verified multi-interface runtime switching and ambiguity reporting.
 - Atomic recovery, bounded locking and source-keyed XKB catalog cache.
 - Keyboard-only navigation, reduced-motion support and fixture-native UI checks.

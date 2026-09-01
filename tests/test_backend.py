@@ -196,8 +196,14 @@ class DeferredLoaderTests(unittest.TestCase):
             root.mkdir(parents=True)
             loader = Path(directory) / 'loader.lua'
             loader.write_bytes(LOADER)
-            active = render_deferred(self.saved('us,pl'), 'session-a')
-            pending = render_deferred(self.saved('pl,us'), 'session-a')
+            active_saved = self.saved('us,pl')
+            pending_saved = self.saved('pl,us')
+            for saved in (active_saved, pending_saved):
+                extra = copy.deepcopy(saved['profiles']['group'][0])
+                extra['name'] = 'typing-keyboard-aux'
+                saved['profiles']['group'].append(extra)
+            active = render_deferred(active_saved, 'session-a')
+            pending = render_deferred(pending_saved, 'session-a')
             (root / 'active-v1.conf').write_bytes(active)
             (root / 'pending-v1.conf').write_bytes(pending)
             runner = Path(directory) / 'runner.lua'
@@ -206,10 +212,21 @@ local devices = {}
 hl = {
   device = function(spec) table.insert(devices, spec) end,
 }
+local original_popen = io.popen
+io.popen = function(command)
+  local handle = assert(original_popen(command))
+  return {
+    read = function(_, format) return handle:read(format) end,
+    close = function() handle:close(); return nil end,
+  }
+end
+os.execute = function() return nil end
 dofile(arg[1])
-assert(#devices == 1 and devices[1].kb_layout == arg[2])
+assert(#devices == 2)
+assert(devices[1].kb_layout == arg[2] and devices[2].kb_layout == arg[2])
 dofile(arg[1])
-assert(#devices == 2 and devices[2].kb_layout == arg[2])
+assert(#devices == 4)
+assert(devices[3].kb_layout == arg[2] and devices[4].kb_layout == arg[2])
 ''')
             env = dict(os.environ, XDG_STATE_HOME=str(state), HYPRLAND_INSTANCE_SIGNATURE='session-a')
             subprocess.run(['lua', str(runner), str(loader), 'us,pl'], check=True, env=env)
@@ -218,6 +235,34 @@ assert(#devices == 2 and devices[2].kb_layout == arg[2])
             subprocess.run(['lua', str(runner), str(loader), 'pl,us'], check=True, env=env)
             self.assertEqual((root / 'active-v1.conf').read_bytes(), pending)
             self.assertEqual((root / 'active-v1.conf').stat().st_mode & 0o777, 0o600)
+
+    def test_loader_keeps_active_when_promotion_cannot_be_proven(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / 'state'
+            root = state / 'omarchy/keyboard-settings'
+            root.mkdir(parents=True)
+            loader = Path(directory) / 'loader.lua'
+            loader.write_bytes(LOADER)
+            active = render_deferred(self.saved('us,pl'), 'session-a')
+            pending = render_deferred(self.saved('pl,us'), 'session-a')
+            (root / 'active-v1.conf').write_bytes(active)
+            (root / 'pending-v1.conf').write_bytes(pending)
+            runner = Path(directory) / 'runner.lua'
+            runner.write_text('''
+local devices = {}
+hl = { device = function(spec) table.insert(devices, spec) end }
+io.popen = function()
+  return {
+    read = function() return "" end,
+    close = function() return nil end,
+  }
+end
+dofile(arg[1])
+assert(#devices == 1 and devices[1].kb_layout == "us,pl")
+''')
+            env = dict(os.environ, XDG_STATE_HOME=str(state), HYPRLAND_INSTANCE_SIGNATURE='session-b')
+            subprocess.run(['lua', str(runner), str(loader)], check=True, env=env)
+            self.assertEqual((root / 'active-v1.conf').read_bytes(), active)
 
 
 class TransactionTests(unittest.TestCase):
