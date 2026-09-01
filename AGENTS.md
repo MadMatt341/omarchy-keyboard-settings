@@ -20,7 +20,8 @@ Read [README.md](README.md) for commands, then the relevant part of
 | Physical keyboard grouping | `backend/devices.py` |
 | Active interface, observation cache | `backend/session.py` (`layout_activity`, `status`) |
 | Character and shortcut validation | `backend/keymap.py` |
-| Deferred save, persistence, recovery, Lua output | `backend/session.py` |
+| Deferred save, persistence and recovery | `backend/session.py` |
+| Fixed Lua loader and inert active/pending data | `backend/deferred.py` |
 | Git activation/removal | `tools/plugin.py`, `tests/test_integration.py` |
 | Package contents and legacy copied installs | `tools/package_support.py`, `tools/package.py`, `tools/install.py`, `manifest.json`, `qmldir` |
 | Redacted support report | `tools/diagnostics.py`, `SUPPORT.md` |
@@ -28,7 +29,7 @@ Read [README.md](README.md) for commands, then the relevant part of
 ## Rules that protect typing and user configuration
 
 - Keep active layout separate from the first saved layout (login default). Synchronize verified typing interfaces after runtime switching.
-- Route layout/variant/default/shortcut edits through `Session.save()`. Keep them deferred until login/reboot; preserve locking, revision checks, transaction backups and readback verification.
+- Route layout/variant/default/shortcut edits through `Session.save()`. Keep them deferred until login/reboot: saves may update only the profile and inert pending data, never the watched Lua loader or active data. Preserve locking, revision checks, transaction backups and readback verification.
 - Preserve unrelated XKB options. Validate the candidate with libxkbcommon before applying it. `both-alt` is `grp:alt_altgr_toggle`; `grp:alts_toggle` breaks the tested Polish AltGr map.
 - Do not guess a device from Hyprland's `main` flag or overwrite custom keymaps. Do not reintroduce live keymap replacement, capture raw input events or add a typing-text store.
 - Use installed `qs.Ui` / `qs.Commons` components and style tokens. Keep keyboard focus, ordinary text entry, stable flag/label sizing, readable ambiguity indicators and reduced-motion behavior working.

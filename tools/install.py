@@ -16,6 +16,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.catalog import SettingsError
+from backend.deferred import LOADER, render as render_deferred
 from backend.session import Paths, Session, atomic, encoded
 from tools.package_support import ROOT, ID, runtime_files, stage
 
@@ -73,7 +74,7 @@ def run(apply=False, remove=False):
         if not target.is_dir() or tree_hash(target) != saved['files']:
             raise SettingsError('The installed plugin has local edits. Preserve and review them before removal.')
         print('Would restore the stock indicator in the current bar position and archive this plugin.')
-        print('Saved keyboard overrides would be removed; your untouched input.lua would take effect again.')
+        print('The saved keyboard loader and data would be removed; your untouched input.lua would take effect again.')
         if not apply: return
         Session(paths).recover_pending()
         with paths.lock():
@@ -88,6 +89,8 @@ def run(apply=False, remove=False):
         return
     if target.exists() or receipt.exists():
         raise SettingsError('A local installation already exists. It will not be overwritten.')
+    if any(path.exists() for path in (paths.override, paths.active, paths.pending, paths.profile)):
+        raise SettingsError('Saved keyboard state already exists. Use the documented Git migration instead.')
     updated, original = replace(settings, STOCK, ID)
     with tempfile.TemporaryDirectory(prefix='keyboard-settings-package-') as temp:
         staged = Path(temp) / ID
@@ -109,6 +112,10 @@ def run(apply=False, remove=False):
             try:
                 os.rename(incoming, target)
                 atomic(receipt, encoded({'originalEntry': original, 'files': tree_hash(target)}))
+                empty = render_deferred({'profiles': {}})
+                atomic(paths.active, empty)
+                atomic(paths.pending, empty)
+                atomic(paths.override, LOADER)
                 if shell.read_bytes() != before:
                     raise SettingsError('The bar changed while the package was being copied. Its newer settings were preserved.')
                 atomic(shell, written_shell)
@@ -116,6 +123,9 @@ def run(apply=False, remove=False):
                 if shell.read_bytes() == written_shell:
                     atomic(shell, before)
                 receipt.unlink(missing_ok=True)
+                paths.override.unlink(missing_ok=True)
+                paths.active.unlink(missing_ok=True)
+                paths.pending.unlink(missing_ok=True)
                 if target.exists(): shutil.move(target, backup / 'incomplete-plugin')
                 raise
         print('Installed locally. Omarchy hot-reloads the bar; the stock files are unchanged.')

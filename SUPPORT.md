@@ -16,16 +16,20 @@ before or after login. For UI problems, include the bar edge and display scale.
 For typing problems, describe the expected and observed characters in your own
 words; do not attach captured key events.
 
-Do not post raw `settings.json`, `activity.json`, `transaction.json`, generated
-Lua, `hyprctl devices` output or helper `status` output. Those may reveal keyboard
-device names, configured layouts, paths or other local configuration. The plugin
-never records typed text, and a useful support report should not contain it.
+Do not post raw `settings.json`, `activity.json`, `transaction.json`,
+`active-v1.conf`, `pending-v1.conf`, generated Lua, `hyprctl devices` output or
+helper `status` output. Those may reveal keyboard device names, configured
+layouts, paths or other local configuration. The plugin never records typed text,
+and a useful support report should not contain it.
 
 Common recovery paths:
 
 - A save interrupted between its two owned-file writes is checked by the next
   helper request. External edits are preserved and the helper asks for manual
   review rather than overwriting them.
+- Pending data is promoted during a graceful Hyprland shutdown. If the compositor
+  or machine was forcibly terminated, sign out or reboot normally once more; the
+  validated pending file remains available for promotion.
 - If a generic disable removed the widget, run `tools/plugin.py prepare-remove`
   from the installed checkout. It can restore the stock entry from the external
   receipt.

@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import test_backend
+from backend.deferred import LOADER
 from backend.session import Session
 
 
@@ -30,7 +31,7 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(self.hypr.items, before)
         self.assertEqual(self.hypr.calls, [])
         self.assertFalse(self.paths.profile.exists())
-        self.assertFalse(self.paths.override.exists())
+        self.assertEqual(self.paths.override.read_bytes(), LOADER)
 
     def test_cached_source_reads_current_index_not_old_label(self):
         self.split()

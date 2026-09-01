@@ -17,12 +17,14 @@ Hyprland, Quickshell or XKB.
 Omarchy plugins run unsandboxed with the current user's permissions. This plugin
 starts its bundled Python helper with an argv array, reads the installed XKB
 registry and Hyprland device metadata, and writes only its documented state,
-cache and generated keyboard override. It does not use a network service, sudo,
-pip packages, shell command strings, raw input events or typed text.
+cache and fixed keyboard loader. It does not use a network service, sudo, pip
+packages, raw input events or typed text. The fixed loader uses a constant shell
+command at compositor shutdown only to set mode `0600` and sync its state file;
+paths are single-quoted and no device or user-entered value enters that command.
 
-The generated override intentionally changes keyboard layouts at the next login.
-All edits are validated with libxkbcommon, serialized under a bounded lock,
-written atomically with recovery records, and verified by readback. Runtime
+The fixed loader intentionally applies the promoted active data at the next
+login. Pending edits are validated with libxkbcommon, serialized under a bounded
+lock, written atomically with recovery records, and verified by readback. Runtime
 switching addresses only verified typing interfaces and uses already loaded
 layouts.
 

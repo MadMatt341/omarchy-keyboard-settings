@@ -13,6 +13,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.catalog import Catalog
+from backend.deferred import LOADER, render as render_deferred
 from backend.session import Paths, Session
 from test_backend import FakeHyprland, record
 
@@ -37,6 +38,12 @@ def fixture(directory):
     paths = Paths(root / "config", root / "state", root / "cache")
     paths.main.parent.mkdir(parents=True)
     paths.main.write_text('require("default.hypr.toggles")\n')
+    paths.override.parent.mkdir(parents=True)
+    paths.override.write_bytes(LOADER)
+    paths.root.mkdir(parents=True)
+    empty = render_deferred({'profiles': {}})
+    paths.active.write_bytes(empty)
+    paths.pending.write_bytes(empty)
     records = [record(), record("typing-keyboard-aux"), record("mouse-keyboard", "usb-mouse")]
     records[-1]["primary"] = False
     records.append(dict(name="mouse", group="usb-mouse", typing=False, pointer=True, primary=False))

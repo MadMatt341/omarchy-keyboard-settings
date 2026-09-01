@@ -9,6 +9,7 @@ import fcntl
 from unittest.mock import patch
 
 from backend.catalog import Catalog, SettingsError
+from backend.deferred import LOADER, parse as parse_deferred, render as render_deferred
 from backend.keymap import Keymap, validate
 from backend.devices import resolve, pick, active_index, bits, metadata, normalized
 from backend.session import Session, Paths, Hyprland, config_of, lua_string, equivalent
@@ -169,6 +170,55 @@ class FakeHyprland:
             raise SettingsError('injected reload failure')
 
 
+class DeferredLoaderTests(unittest.TestCase):
+    def saved(self, layout, name='typing-keyboard'):
+        return {'profiles': {'group': [{
+            'name': name, 'layout': layout, 'variant': ',',
+            'options': 'compose:caps,grp:alt_altgr_toggle',
+        }]}}
+
+    def test_data_is_inert_strict_and_round_trips_unicode(self):
+        name = 'name"}); error("injection") -- \\ąć\n123'
+        data = render_deferred(self.saved('us,pl', name))
+        self.assertNotIn(name.encode(), data)
+        self.assertEqual(parse_deferred(data)[0]['name'], name)
+        for corrupt in (b'broken\n', data[:-1], data + b'not-a-row\n'):
+            with self.assertRaises(ValueError):
+                parse_deferred(corrupt)
+
+    def test_loader_keeps_active_on_reload_and_promotes_only_at_shutdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / 'state'
+            root = state / 'omarchy/keyboard-settings'
+            root.mkdir(parents=True)
+            loader = Path(directory) / 'loader.lua'
+            loader.write_bytes(LOADER)
+            active = render_deferred(self.saved('us,pl'))
+            pending = render_deferred(self.saved('pl,us'))
+            (root / 'active-v1.conf').write_bytes(active)
+            (root / 'pending-v1.conf').write_bytes(pending)
+            runner = Path(directory) / 'runner.lua'
+            runner.write_text('''
+local callbacks = {}
+local devices = {}
+hl = {
+  device = function(spec) table.insert(devices, spec) end,
+  on = function(name, callback) callbacks[name] = callback end,
+}
+dofile(arg[1])
+assert(#devices == 1 and devices[1].kb_layout == arg[2])
+dofile(arg[1])
+assert(#devices == 2 and devices[2].kb_layout == arg[2])
+assert(callbacks["hyprland.shutdown"])
+callbacks["hyprland.shutdown"]()
+''')
+            env = dict(os.environ, XDG_STATE_HOME=str(state))
+            subprocess.run(['lua', str(runner), str(loader), 'us,pl'], check=True, env=env)
+            self.assertEqual((root / 'active-v1.conf').read_bytes(), pending)
+            self.assertEqual((root / 'active-v1.conf').stat().st_mode & 0o777, 0o600)
+            subprocess.run(['lua', str(runner), str(loader), 'pl,us'], check=True, env=env)
+
+
 class TransactionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -179,6 +229,10 @@ class TransactionTests(unittest.TestCase):
         self.paths.main.write_text('require("default.hypr.toggles")\n')
         self.input = self.paths.main.with_name('input.lua')
         self.input.write_text('-- original user file; never rewritten\n')
+        atomic(self.paths.override, LOADER)
+        empty = render_deferred({'profiles': {}})
+        atomic(self.paths.active, empty)
+        atomic(self.paths.pending, empty)
         self.hypr = FakeHyprland()
         records = [record(), record('typing-keyboard-aux'), record('mouse-keyboard', 'usb-mouse')]
         records[-1]['primary'] = False
@@ -194,9 +248,12 @@ class TransactionTests(unittest.TestCase):
         result = self.save()
         self.assertEqual(result, {'restartRequired': True})
         self.assertEqual(self.input.read_text(), '-- original user file; never rewritten\n')
-        self.assertIn('kb_layout="us,de"', self.paths.override.read_text())
-        self.assertIn('compose:caps,shift:both_capslock_cancel', self.paths.override.read_text())
-        self.assertNotIn('mouse', self.paths.override.read_text())
+        self.assertEqual(self.paths.override.read_bytes(), LOADER)
+        targets = parse_deferred(self.paths.pending.read_bytes())
+        self.assertEqual({target['layout'] for target in targets}, {'us,de'})
+        self.assertTrue(all('compose:caps,shift:both_capslock_cancel' in target['options']
+                            for target in targets))
+        self.assertFalse(any('mouse' in target['name'] for target in targets))
         self.assertEqual(len(list((self.paths.root / 'backups').glob('*/recovery.json'))), 1)
         self.assertEqual(self.hypr.items, self.original)
         self.assertEqual(self.hypr.calls, [])
@@ -245,17 +302,19 @@ class TransactionTests(unittest.TestCase):
         with patch('backend.session.atomic', side_effect=fail_profile):
             with self.assertRaisesRegex(SettingsError, 'previous files were restored'):
                 self.save()
-        self.assertFalse(self.paths.override.exists())
+        self.assertEqual(self.paths.override.read_bytes(), LOADER)
+        self.assertEqual(parse_deferred(self.paths.pending.read_bytes()), [])
         self.assertFalse(self.paths.profile.exists())
         self.assertFalse(self.paths.transaction.exists())
         self.assertEqual(self.hypr.calls, [])
 
     def test_corrupt_saved_state_is_refused_without_mutation(self):
-        self.paths.profile.parent.mkdir(parents=True)
-        self.paths.profile.write_text('{broken')
-        with self.assertRaisesRegex(SettingsError, 'Recover the saved settings'):
-            self.session.status()
-        self.assertFalse(self.paths.override.exists())
+        self.paths.profile.parent.mkdir(parents=True, exist_ok=True)
+        for value in ('{broken', '[]', 'null'):
+            self.paths.profile.write_text(value)
+            with self.assertRaisesRegex(SettingsError, 'Recover the saved settings'):
+                self.session.status()
+        self.assertEqual(self.paths.override.read_bytes(), LOADER)
         self.assertEqual(self.hypr.calls, [])
 
     def test_recovery_preserves_an_external_file_edit(self):
@@ -297,6 +356,9 @@ class TransactionTests(unittest.TestCase):
                     self.fail("contended lock was acquired")
 
     def test_reset_removes_orphan_profile_without_desktop_reload(self):
+        self.paths.override.unlink()
+        self.paths.active.unlink()
+        self.paths.pending.unlink()
         atomic(self.paths.profile, encoded({"profiles": {}}))
         self.session.reset_saved()
         self.assertFalse(self.paths.profile.exists())

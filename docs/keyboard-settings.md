@@ -14,9 +14,9 @@ owning files and [VALIDATION.md](../VALIDATION.md) for evidence and open live ch
 
 There is no typing trial, timer, Keep, Revert, or live layout-set replacement.
 Layout-set and shortcut edits are validated and written to the plugin-owned saved
-configuration, then take effect on the next login or reboot. Until then, the
-picker continues to show and switch the layouts that the compositor is actually
-running; the editor shows the pending saved list and a restart notice.
+configuration, then take effect after the next graceful sign-out or reboot. Until
+then, the picker continues to show and switch the layouts that the compositor is
+actually running; the editor shows the pending saved list and a restart notice.
 
 The first saved layout is the login default. Adding appends to the list, so the
 existing default stays first. Choosing another default moves that exact
@@ -68,7 +68,7 @@ Empty variant positions remain significant in comma-separated configuration.
 configured fields drive the editor. `active = -1` means no verified source.
 
 `revision` hashes device identities/configuration, tracked Lua sources, the saved
-profile and owned override; it excludes active-layout changes. `eventDevice`
+profile, fixed loader and active/pending data; it excludes active-layout changes. `eventDevice`
 identifies a recent `activelayout` event and is consumed once. Hyprland's `main`
 flag is never used to select a typing keyboard.
 
@@ -104,14 +104,17 @@ typing.
 `Session.save()` holds the state lock, rejects stale revisions and unsafe device or
 keymap state, resolves the catalog pairs, preserves unrelated XKB options, and
 validates every target. It creates a recovery backup and `transaction.json`, then
-atomically writes the owned Lua override and profile and verifies their bytes.
-The transaction is removed only after both readbacks succeed.
+atomically writes the inert pending data and profile and verifies their bytes.
+The fixed Lua loader and active data are unchanged. The transaction is removed
+only after both readbacks succeed.
 
 If the helper stops between the two writes, the next non-catalog request restores
 only files that still match the interrupted write. New external contents are
 preserved for manual review. Recovery performs no compositor call. A successful
-save also performs no `hyprctl reload` and no `hyprctl eval hl.device`; activation
-is deliberately deferred to the next compositor session.
+save also performs no `hyprctl reload`, no watched-Lua write and no
+`hyprctl eval hl.device`. The fixed loader continues to use active data during
+the session. On graceful Hyprland shutdown it validates and atomically promotes
+the pending data; the next compositor session reads the promoted active data.
 
 Ordinary picker switching is separate. It calls only `switchxkblayout` for layouts
 already loaded by the running compositor, verifies each typing interface, and
@@ -130,7 +133,9 @@ restores prior indices if a partial switch fails.
 | `ROOT/activity.json` | Verified runtime source interface and observed indices; no saved keyboard settings. |
 | `ROOT/transaction.json`, `ROOT/lock` | Interrupted owned-file save record and mutation lock. |
 | `ROOT/backups/<token>/recovery.json` | Previous and intended owned-file contents for recovery. |
-| `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Generated login-time `hl.device` overrides; owns layout, variant and the preserved option list. |
+| `ROOT/pending-v1.conf` | Validated, non-executable device data written by saves; not watched by Hyprland. |
+| `ROOT/active-v1.conf` | Data read by the fixed loader; replaced from pending data only at graceful compositor shutdown. |
+| `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Fixed loader installed during activation. It parses strict hex records, applies only active data and promotes pending data at shutdown. |
 | `CACHE/omarchy/keyboard-settings/catalog-v1.json` | Atomic parsed-XKB cache, keyed by the SHA-256 hashes of the installed base and extras registries. Corruption or source changes rebuild it. |
 | `ROOT/installation.json` | External activation receipt with the exact original bar entry, section/index and backup reference. It survives Git updates and generic checkout removal. |
 | `ROOT/lifecycle/backups/<token>/shell.json` | Bar backup created by Git activation. |
@@ -146,13 +151,15 @@ and the package version are derived from the root QML modules and `manifest.json
 by `tools/package_support.py`; every stage starts empty.
 
 `tools/plugin.py activate` and `prepare-remove` are dry-run by default. Activation
-replaces one stock entry while preserving its settings and center anchor. Removal
-preparation restores that entry and resets the owned override unless
-`--keep-settings` is explicit. Both use the same bounded state lock as settings
-changes, refuse a pending transaction or concurrent bar edit, and keep recovery
-evidence outside the checkout. Omarchy remains responsible for cloning, updating
-and deleting the Git checkout. `tools/install.py` remains only for migration and
-isolated compatibility tests of older copied development installations.
+replaces one stock entry while preserving its settings and center anchor, and
+installs or migrates the fixed loader only when the saved state matches the live
+keyboard. Removal preparation restores the stock entry and resets the loader and
+active/pending data unless `--keep-settings` is explicit. Both use the same bounded
+state lock as settings changes, refuse a pending transaction or concurrent bar
+edit, and keep recovery evidence outside the checkout. Omarchy remains responsible
+for cloning, updating and deleting the Git checkout. `tools/install.py` remains
+only for migration and isolated compatibility tests of older copied development
+installations.
 
 ## Incident boundary
 

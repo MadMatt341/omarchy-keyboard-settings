@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.catalog import SettingsError
+from backend.deferred import LOADER, MARKER, parse as parse_deferred, render as render_deferred
 from backend.session import Paths, Session, atomic, encoded
 from tools.install import ID, STOCK, location, replace, tree_hash
 
@@ -31,6 +32,59 @@ def _inputs(source=ROOT):
     return paths, shell, target, receipt, Path(source)
 
 
+def _blob(path):
+    return path.read_bytes() if path.exists() else None
+
+
+def _restore(path, content):
+    if content is None:
+        path.unlink(missing_ok=True)
+    else:
+        atomic(path, content)
+
+
+def _loader_plan(paths):
+    """Plan a safe migration from embedded Lua to static deferred data."""
+    current = _blob(paths.override)
+    if current not in (None, LOADER) and not current.startswith(MARKER.encode()):
+        raise SettingsError("The saved keyboard override is not owned by this picker.")
+
+    for path in (paths.active, paths.pending):
+        if path.exists():
+            try:
+                parse_deferred(path.read_bytes())
+            except (OSError, ValueError) as exc:
+                raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before activation.") from exc
+
+    complete = current == LOADER and paths.active.exists() and paths.pending.exists()
+    if complete:
+        return {}, _blob(paths.profile)
+
+    profile_blob = _blob(paths.profile)
+    try:
+        saved = json.loads(profile_blob) if profile_blob is not None else {"profiles": {}}
+    except ValueError as exc:
+        raise SettingsError("Cannot read settings.json. Recover the saved settings before activation.") from exc
+    if not isinstance(saved, dict):
+        raise SettingsError("Cannot read settings.json. Recover the saved settings before activation.")
+    if profile_blob is not None:
+        status = Session(paths).status()
+        if status["pendingRestart"]:
+            raise SettingsError("Log out once to apply the saved keyboard edit before migrating its deferred loader.")
+    elif current not in (None, LOADER):
+        raise SettingsError("The legacy keyboard override has no saved profile to migrate safely.")
+
+    try:
+        data = render_deferred(saved)
+    except ValueError as exc:
+        raise SettingsError("The saved keyboard profile needs manual review before activation.") from exc
+    desired = {paths.active: data, paths.pending: data, paths.override: LOADER}
+    if _blob(paths.profile) != profile_blob:
+        raise SettingsError("The saved keyboard state changed. Run activation again.")
+    return ({path: (_blob(path), content) for path, content in desired.items()
+             if _blob(path) != content}, profile_blob)
+
+
 def activate(apply=False, source=ROOT):
     paths, shell, target, receipt, source = _inputs(source)
     if not target.is_dir() or target.is_symlink() or target.resolve() != source.resolve():
@@ -43,8 +97,11 @@ def activate(apply=False, source=ROOT):
     settings = json.loads(before)
     section, index, _ = location(settings, STOCK)
     updated, original = replace(settings, STOCK, ID)
+    loader_plan, loader_profile = _loader_plan(paths)
     print("Would replace the stock keyboard indicator in its existing slot.")
-    print("No keyboard settings, user Lua, system files, or installed source would change.")
+    if loader_plan:
+        print("Would install the fixed deferred-login loader without changing the current layout.")
+    print("No user-authored Lua, system files, or installed source would change.")
     if not apply:
         return
     with paths.lock():
@@ -52,19 +109,27 @@ def activate(apply=False, source=ROOT):
             raise SettingsError("Recover the pending keyboard file update before activation.")
         if shell.read_bytes() != before:
             raise SettingsError("The bar changed. Run activation again.")
+        if _blob(paths.profile) != loader_profile or any(_blob(path) != previous
+                                                        for path, (previous, _) in loader_plan.items()):
+            raise SettingsError("The saved keyboard state changed. Run activation again.")
         token = secrets.token_hex(12)
         backup = paths.root / "lifecycle/backups" / token
         written = json.dumps(updated, indent=2).encode() + b"\n"
         atomic(backup / "shell.json", before)
-        atomic(receipt, encoded({"schema": 2, "mode": "git", "originalEntry": original,
+        atomic(receipt, encoded({"schema": 3, "mode": "git", "originalEntry": original,
                                  "originalLocation": {"section": section, "index": index},
-                                 "backup": str(backup.relative_to(paths.root))}))
+                                 "backup": str(backup.relative_to(paths.root)),
+                                 "deferredLoader": True}))
         try:
+            for path, (_, content) in loader_plan.items():
+                atomic(path, content)
             atomic(shell, written)
         except Exception:
             receipt.unlink(missing_ok=True)
             if shell.exists() and shell.read_bytes() == written:
                 atomic(shell, before)
+            for path, (previous, _) in loader_plan.items():
+                _restore(path, previous)
             raise
     print("Activated the Git-managed plugin. Omarchy will hot-reload the bar.")
 
@@ -74,7 +139,7 @@ def prepare_remove(apply=False, keep_settings=False, source=ROOT):
     if not receipt.is_file() or receipt.is_symlink():
         raise SettingsError("There is no activation receipt to restore safely.")
     saved = json.loads(receipt.read_text())
-    if saved.get("schema") not in (None, 2) or "originalEntry" not in saved:
+    if saved.get("schema") not in (None, 2, 3) or "originalEntry" not in saved:
         raise SettingsError("The activation receipt format needs manual review.")
     if saved.get("schema") is None and saved.get("files"):
         if not target.is_dir() or tree_hash(target) != saved["files"]:
@@ -85,7 +150,7 @@ def prepare_remove(apply=False, keep_settings=False, source=ROOT):
         updated, _ = replace(settings, ID, STOCK, saved["originalEntry"])
     except SettingsError:
         # Omarchy's generic disable/remove deletes a bar entry without running a
-        # plugin hook. A schema-2 receipt retains enough position data to repair it.
+        # plugin hook. A versioned receipt retains enough position data to repair it.
         layout = settings.get("bar", {}).get("layout", {})
         present = [(section, entry) for section, entries in layout.items() if isinstance(entries, list)
                    for entry in entries if (entry.get("id") if isinstance(entry, dict) else entry) in (ID, STOCK)]

@@ -17,12 +17,12 @@ import tempfile
 import time
 
 from .catalog import Catalog, SettingsError
+from .deferred import LOADER, MARKER, parse as parse_deferred, render as render_deferred
 from .devices import metadata, resolve, pick, active_index
 from .keymap import validate
 
 FIELDS = ("rules", "model", "layout", "variant", "options")
 OWNED = ("layout", "variant", "options")
-MARKER = "-- Managed by madmatt.keyboard-settings. Remove through its recovery command.\n"
 
 
 def encoded(data):
@@ -87,6 +87,8 @@ class Paths:
         self.activity = self.root / "activity.json"
         self.transaction = self.root / "transaction.json"
         self.override = self.state / "omarchy/toggles/hypr/madmatt-keyboard-settings.lua"
+        self.active = self.root / "active-v1.conf"
+        self.pending = self.root / "pending-v1.conf"
         self.main = self.config / "hypr/hyprland.lua"
 
     @contextmanager
@@ -118,7 +120,7 @@ class Paths:
         except (ValueError, OSError) as exc:
             raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before editing.") from exc
 
-    def check_loader(self):
+    def check_loader(self, allow_legacy=False):
         try:
             text = self.main.read_text()
         except OSError as exc:
@@ -130,8 +132,16 @@ class Paths:
             content = Path(filename).read_text()
             if any("kb_file" in line for line in content.splitlines() if not line.lstrip().startswith("--")):
                 raise SettingsError("A custom keymap file needs manual review. The picker will not replace it.")
-        if self.override.exists() and not self.override.read_text().startswith(MARKER):
-            raise SettingsError("The saved keyboard override is not owned by this picker.")
+        override = self.override.read_bytes() if self.override.exists() else b""
+        legacy = allow_legacy and override.startswith(MARKER.encode())
+        if override != LOADER and not legacy:
+            raise SettingsError("Reactivate the plugin to install its deferred login loader before saving.")
+        for path in (self.active, self.pending) if override == LOADER else ():
+            if path.exists():
+                try:
+                    parse_deferred(path.read_bytes())
+                except (OSError, ValueError) as exc:
+                    raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before editing.") from exc
 
 
 class Hyprland:
@@ -184,9 +194,13 @@ class Session:
         records = self.records if self.records is not None else metadata()
         groups, _ = resolve(devices, records)
         saved = self.paths.read(self.paths.profile, {"profiles": {}})
+        if not isinstance(saved, dict):
+            raise SettingsError("Cannot read settings.json. Recover the saved settings before editing.")
         group = pick(groups, saved.get("preferred"))
         revision = digest({"groups": groups_without_active(groups), "sources": self.paths.sources(),
-                           "saved": saved, "override": self.file_blob(self.paths.override)})
+                           "saved": saved, "loader": self.file_blob(self.paths.override),
+                           "active": self.file_blob(self.paths.active),
+                           "pending": self.file_blob(self.paths.pending)})
         rows = self.catalog.current_rows(group["members"][0]) if group else []
         consistent = bool(group) and all(config_of(m) == config_of(group["members"][0]) for m in group["members"])
         activity = self.layout_activity(group, event_device) if consistent else {}
@@ -326,21 +340,21 @@ class Session:
             saved["preferred"] = snap["group"]["id"]
             saved.setdefault("profiles", {})[snap["group"]["id"]] = targets
             written_profile = encoded(saved)
-            written_override = self.render(saved).encode()
+            written_pending = render_deferred(saved)
             transaction = {
                 "kind": "deferred-save", "token": secrets.token_hex(16),
                 "profile": self.file_blob(self.paths.profile),
-                "override": self.file_blob(self.paths.override),
+                "pending": self.file_blob(self.paths.pending),
                 "writtenProfile": base64.b64encode(written_profile).decode(),
-                "writtenOverride": base64.b64encode(written_override).decode(),
+                "writtenPending": base64.b64encode(written_pending).decode(),
             }
             backup = self.paths.root / "backups" / transaction["token"]
             atomic(backup / "recovery.json", encoded(transaction))
             atomic(self.paths.transaction, encoded(transaction))
             try:
-                atomic(self.paths.override, written_override)
+                atomic(self.paths.pending, written_pending)
                 atomic(self.paths.profile, written_profile)
-                if (self.paths.override.read_bytes() != written_override
+                if (self.paths.pending.read_bytes() != written_pending
                         or self.paths.profile.read_bytes() != written_profile):
                     raise OSError("saved keyboard files failed readback")
                 self.paths.transaction.unlink()
@@ -351,7 +365,11 @@ class Session:
 
     def _recover_files(self, transaction):
         conflicts = []
-        for key, path in (("Profile", self.paths.profile), ("Override", self.paths.override)):
+        files = (("Profile", self.paths.profile), ("Pending", self.paths.pending))
+        # Recover a transaction written by the pre-release embedded-Lua build.
+        if "writtenPending" not in transaction and "writtenOverride" in transaction:
+            files = (("Profile", self.paths.profile), ("Override", self.paths.override))
+        for key, path in files:
             current = self.file_blob(path)
             written = transaction.get("written" + key)
             previous = transaction.get(key.lower())
@@ -376,25 +394,26 @@ class Session:
         """Called under the installation lock, only by explicit removal."""
         if self.paths.transaction.exists():
             raise SettingsError("Recover the pending keyboard file update before removal.")
-        if not self.paths.override.exists() and not self.paths.profile.exists():
+        owned = (self.paths.override, self.paths.active, self.paths.pending, self.paths.profile)
+        if not any(path.exists() for path in owned):
             return
-        old = self.file_blob(self.paths.override)
-        profile = self.file_blob(self.paths.profile)
+        blobs = {path: self.file_blob(path) for path in owned}
         backup = self.paths.root / "backups" / ("remove-" + secrets.token_hex(8))
-        if old is not None:
-            self.paths.check_loader()
+        if blobs[self.paths.override] is not None:
+            self.paths.check_loader(allow_legacy=True)
             self.hypr.check()
-            atomic(backup / "override.lua", base64.b64decode(old))
-        if profile is not None:
-            atomic(backup / "settings.json", base64.b64decode(profile))
+        for path, blob in blobs.items():
+            if blob is not None:
+                atomic(backup / path.name, base64.b64decode(blob))
+        for path in (self.paths.pending, self.paths.active, self.paths.profile):
+            path.unlink(missing_ok=True)
         self.paths.override.unlink(missing_ok=True)
         try:
-            if old is not None:
+            if blobs[self.paths.override] is not None:
                 self.hypr.reload()
-            self.paths.profile.unlink(missing_ok=True)
         except Exception:
-            self.restore_blob(self.paths.override, old)
-            self.restore_blob(self.paths.profile, profile)
+            for path, blob in blobs.items():
+                self.restore_blob(path, blob)
             self.hypr.reload()
             raise
 
@@ -408,20 +427,6 @@ class Session:
             path.unlink(missing_ok=True)
         else:
             atomic(path, base64.b64decode(blob))
-
-    @staticmethod
-    def render(saved):
-        lines = [MARKER.rstrip()]
-        names = set()
-        for targets in saved.get("profiles", {}).values():
-            for t in targets:
-                if t["name"] in names:
-                    raise SettingsError("Saved keyboard names overlap. Resolve the devices before saving.")
-                names.add(t["name"])
-                fields = ["name=" + lua_string(t["name"])] + ["kb_" + k + "=" + lua_string(t[k]) for k in OWNED]
-                lines.append("hl.device({" + ",".join(fields) + "})")
-        return "\n".join(lines) + "\n"
-
 
 def groups_without_active(groups):
     return [{"id": g["id"], "certain": g["certain"], "members": [

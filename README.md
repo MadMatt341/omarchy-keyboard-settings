@@ -21,9 +21,9 @@ listed in [VALIDATION.md](VALIDATION.md).
 - Refuse ambiguous keyboards, custom keymaps and unsafe shortcut maps instead of
   guessing.
 
-Saved edits take effect at the next login or reboot. The editor never replaces
-the live keymap. Switching from the picker uses only Hyprland's existing loaded
-layouts and does not reorder the saved login default.
+Saved edits take effect after the next graceful sign-out or reboot. The editor
+never replaces the live keymap. Switching from the picker uses only Hyprland's
+existing loaded layouts and does not reorder the saved login default.
 
 The indicator rolls through a country flag when switching. Set `"animate": false`
 on its bar entry to disable that feedback; reduced compositor motion is respected.
@@ -41,9 +41,10 @@ versions, not minimum-version claims. The runtime uses only Omarchy components,
 Python's standard library and installed system keyboard data. There are no pip
 packages, downloads or web services at runtime.
 
-Your Hyprland Lua configuration must load `default.hypr.toggles`. The plugin owns
-one generated per-device override after you save settings; it never rewrites
-your `input.lua`.
+Your Hyprland Lua configuration must load `default.hypr.toggles`. Activation
+installs one fixed, plugin-owned Lua loader. Saves update only inert pending data;
+the loader promotes it as Hyprland shuts down and the next session reads it. The
+plugin never rewrites your `input.lua`.
 
 ## Install from Git
 
@@ -58,9 +59,11 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py acti
 ```
 
 Activation replaces exactly one stock keyboard indicator in place, preserving
-its entry settings and center anchoring. It stores the original entry and a bar
-backup under `$XDG_STATE_HOME/omarchy/keyboard-settings/`, outside the Git
-checkout. It does not change keyboard settings.
+its entry settings and center anchoring. It installs the fixed deferred-login
+loader and stores the original entry and a bar backup under
+`$XDG_STATE_HOME/omarchy/keyboard-settings/`, outside the Git checkout. Installing
+the loader may make Hyprland re-read its configuration, but the loader uses the
+current active data and does not change the current keyboard settings.
 
 Do not use `omarchy plugin add ... --enable`: generic enable adds a second widget
 and cannot preserve the stock entry's settings.
@@ -88,9 +91,9 @@ omarchy plugin remove madmatt.keyboard-settings
 ```
 
 By default, preparation restores the stock indicator and backs up and removes
-the plugin-owned saved keyboard override, returning ownership to your existing
-Lua configuration. To keep the saved login keyboard configuration active after
-removing the UI, use:
+the plugin-owned loader plus its active and pending data, returning ownership to
+your existing Lua configuration. To keep the saved login keyboard configuration
+active after removing the UI, use:
 
 ```sh
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prepare-remove --keep-settings --apply
@@ -115,7 +118,7 @@ omarchy plugin add https://github.com/madmatt/omarchy-keyboard-settings.git
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
 ```
 
-Omit `--keep-settings` if you want to reset the generated override during
+Omit `--keep-settings` if you want to reset the loader and saved data during
 migration. A modified old installation is deliberately refused for manual review.
 
 ## Troubleshooting and privacy

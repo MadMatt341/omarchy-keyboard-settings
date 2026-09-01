@@ -9,12 +9,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_backend import keyboard, record
+from test_backend import FakeHyprland, keyboard, record
 from tools.install import replace, run, ID, STOCK
 from tools.diagnostics import collect as diagnostics
 from tools.plugin import activate, prepare_remove
 from tools.package_support import archive_tree, runtime_files, stage
 from backend.catalog import SettingsError
+from backend.deferred import LOADER, parse as parse_deferred
+from backend.session import Session
 
 
 class InstallTests(unittest.TestCase):
@@ -44,6 +46,9 @@ class InstallTests(unittest.TestCase):
             shell = config / 'shell.json'
             original = {'bar': {'layout': {'center': [{'id': STOCK}]}}, 'idle': {'lock': 300}}
             shell.write_text(json.dumps(original))
+            hypr = root / '.config/hypr'
+            hypr.mkdir(parents=True)
+            (hypr / 'hyprland.lua').write_text('require("default.hypr.toggles")\n')
             with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, {
                 'XDG_CONFIG_HOME': str(root / '.config'), 'XDG_STATE_HOME': str(root / '.local/state')}):
                 run(apply=True)
@@ -52,11 +57,14 @@ class InstallTests(unittest.TestCase):
                 self.assertTrue((config / 'plugins' / ID / 'Keyboard.qml').is_file())
                 installed['idle']['lock'] = 700
                 shell.write_text(json.dumps(installed))
-                run(apply=True, remove=True)
+                desktop = FakeHyprland()
+                with patch('tools.install.Session', side_effect=lambda paths: Session(paths, desktop, [])):
+                    run(apply=True, remove=True)
             restored = json.loads(shell.read_text())
             self.assertEqual(restored['bar'], original['bar'])
             self.assertEqual(restored['idle']['lock'], 700)
             self.assertFalse((config / 'plugins' / ID).exists())
+            self.assertEqual(desktop.calls, [('reload', '')])
             self.assertEqual(len(list((root / '.local/state/omarchy/keyboard-settings/removed').glob('*/manifest.json'))), 1)
 
 
@@ -121,6 +129,9 @@ class GitLifecycleTests(unittest.TestCase):
         original = {'bar': {'centerAnchor': STOCK, 'layout': {'left': [], 'center': [
             {'id': STOCK, 'animate': False}], 'right': []}}, 'idle': {'lock': 300}}
         shell.write_text(json.dumps(original))
+        hypr = root / '.config/hypr'
+        hypr.mkdir(parents=True)
+        (hypr / 'hyprland.lua').write_text('require("default.hypr.toggles")\n')
         return target, shell, original
 
     def test_git_activation_update_safe_receipt_and_complete_removal(self):
@@ -141,7 +152,13 @@ class GitLifecycleTests(unittest.TestCase):
                 active = json.loads(shell.read_text())
                 self.assertEqual(active['bar']['layout']['center'], [{'id': ID, 'animate': False}])
                 receipt = root / '.local/state/omarchy/keyboard-settings/installation.json'
-                self.assertEqual(json.loads(receipt.read_text())['schema'], 2)
+                self.assertEqual(json.loads(receipt.read_text())['schema'], 3)
+                loader = root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua'
+                active_data = receipt.with_name('active-v1.conf')
+                pending_data = receipt.with_name('pending-v1.conf')
+                self.assertEqual(loader.read_bytes(), LOADER)
+                self.assertEqual(parse_deferred(active_data.read_bytes()), [])
+                self.assertEqual(parse_deferred(pending_data.read_bytes()), [])
                 active['idle']['lock'] = 900
                 shell.write_text(json.dumps(active))
                 # Omarchy updates the checkout in place; lifecycle state must
@@ -154,11 +171,17 @@ class GitLifecycleTests(unittest.TestCase):
                     prepare_remove(True, False, target)
                 self.assertEqual(json.loads(shell.read_text()), active)
                 transaction.unlink()
-                prepare_remove(True, False, target)
+                desktop = FakeHyprland()
+                with patch('tools.plugin.Session', side_effect=lambda paths: Session(paths, desktop, [])):
+                    prepare_remove(True, False, target)
             restored = json.loads(shell.read_text())
             self.assertEqual(restored['bar'], original['bar'])
             self.assertEqual(restored['idle']['lock'], 900)
             self.assertFalse(profile.exists())
+            self.assertFalse(loader.exists())
+            self.assertFalse(active_data.exists())
+            self.assertFalse(pending_data.exists())
+            self.assertEqual(desktop.calls, [('reload', '')])
             self.assertTrue(target.exists(), 'Omarchy owns deletion of the Git checkout')
 
     def test_prepare_remove_can_retain_settings(self):
@@ -172,6 +195,7 @@ class GitLifecycleTests(unittest.TestCase):
                 profile.write_text('{"kept":true}')
                 prepare_remove(True, True, target)
             self.assertEqual(profile.read_text(), '{"kept":true}')
+            self.assertEqual((root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua').read_bytes(), LOADER)
 
     def test_prepare_remove_repairs_a_generic_disable(self):
         with tempfile.TemporaryDirectory() as directory:

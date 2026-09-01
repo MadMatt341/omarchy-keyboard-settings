@@ -28,8 +28,10 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py acti
 Generic enable inserts a plugin widget rather than replacing the stock keyboard
 entry. The activation helper instead replaces exactly one stock entry in place,
 preserves its settings and center anchor, and stores a receipt outside the Git
-checkout. It never changes keyboard settings. Commands without `--apply` report
-the proposed action only.
+checkout. It also installs the fixed deferred-login loader; the loader's active
+data matches the live keyboard during migration, so activation does not change
+the current keyboard settings. Commands without `--apply` report the proposed
+action only.
 
 Updates use:
 
@@ -51,11 +53,12 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prep
 omarchy plugin remove madmatt.keyboard-settings
 ```
 
-This restores the stock bar entry and resets the plugin-owned login override.
-`--keep-settings` deliberately retains that override. The external receipt also
-allows recovery after generic disable removed the widget; if the checkout was
-deleted first, re-add it, prepare removal without activation, and remove it again.
-See the exact user and migration flows in [README.md](../README.md).
+This restores the stock bar entry and resets the fixed loader plus its active and
+pending data. `--keep-settings` deliberately retains those files. The external
+receipt also allows recovery after generic disable removed the widget; if the
+checkout was deleted first, re-add it, prepare removal without activation, and
+remove it again. See the exact user and migration flows in
+[README.md](../README.md).
 
 ## Implemented release controls
 
@@ -63,7 +66,7 @@ See the exact user and migration flows in [README.md](../README.md).
 | --- | --- |
 | Plugin contract | Root `manifest.json`, stable ID `madmatt.keyboard-settings`, root `Keyboard.qml` entry point and native-only runtime. |
 | Git lifecycle | Dry-run activation and preparation for removal, external receipt/backups, retained-settings option, generic-disable repair and copied-install migration. |
-| Safety | Deferred validated saves, readback, atomic recovery, bounded locking, no raw input or live layout-set replacement. |
+| Safety | Deferred validated saves use inert pending data, a fixed loader and shutdown-only promotion, with readback, atomic recovery, bounded locking, no raw input or live layout-set replacement. |
 | Performance | Source-hashed XKB catalog cache outside the watched checkout, event-query coalescing and offline latency budgets. |
 | Packaging | Manifest-derived version/file selection, empty stage, Omarchy validation, normalized deterministic archive and checksum. |
 | Rights/support | MIT license, support guide, private security-report route and privacy-safe diagnostics. No third-party code or media is bundled. |
