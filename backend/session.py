@@ -1,6 +1,6 @@
-"""Validated keyboard configuration with deferred activation and owned-file rollback.
+"""Validated live keyboard configuration with owned-file and runtime rollback.
 
-No live keymap replacement, input-event capture, locale changes, or edits to user Lua.
+No input-event capture, locale changes, or edits to user-authored Lua.
 """
 from contextlib import contextmanager
 from pathlib import Path
@@ -135,7 +135,7 @@ class Paths:
         override = self.override.read_bytes() if self.override.exists() else b""
         legacy = allow_legacy and override.startswith(MARKER.encode())
         if override != LOADER and not legacy:
-            raise SettingsError("Reactivate the plugin to install its deferred login loader before saving.")
+            raise SettingsError("Reactivate the plugin to install its fixed keyboard loader before saving.")
         for path in (self.active, self.pending) if override == LOADER else ():
             if path.exists():
                 try:
@@ -301,25 +301,54 @@ class Session:
             snap = self.require_current(revision, writable=False)
             if type(index) is not int or not 0 <= index < len(snap["rows"]):
                 raise SettingsError("That layout is no longer available.")
-            changed = []
-            try:
-                for device in snap["group"]["members"]:
-                    changed.append(device)
-                    self.hypr.switch(device["name"], index)
-                current = self.hypr.devices().get("keyboards", [])
-                for device in changed:
-                    actual = next((d for d in current if d.get("address") == device.get("address") and d["name"] == device["name"]), None)
-                    if not actual or actual.get("active_layout_index") != index:
-                        raise SettingsError("The typing keyboard did not confirm the layout change.")
-            except Exception:
-                current = self.hypr.devices().get("keyboards", [])
-                for device in changed:
-                    if any(d["name"] == device["name"] and d.get("address") == device.get("address") for d in current):
-                        self.hypr.switch(device["name"], device.get("active_layout_index", 0))
-                raise
+            self._switch_members(snap["group"]["members"], index)
+
+    def _switch_members(self, members, index):
+        changed = []
+        try:
+            for device in members:
+                changed.append(device)
+                self.hypr.switch(device["name"], index)
+            current = self.hypr.devices().get("keyboards", [])
+            for device in changed:
+                actual = next((d for d in current if d.get("address") == device.get("address")
+                               and d.get("name") == device["name"]), None)
+                if not actual or actual.get("active_layout_index") != index:
+                    raise SettingsError("The typing keyboard did not confirm the layout change.")
+        except Exception:
+            current = self.hypr.devices().get("keyboards", [])
+            for device in changed:
+                if any(d.get("name") == device["name"] and d.get("address") == device.get("address")
+                       for d in current):
+                    self.hypr.switch(device["name"], device.get("active_layout_index", 0))
+            raise
+
+    def _runtime_matches(self, expected):
+        if not isinstance(expected, list):
+            return False
+        current = self.hypr.devices().get("keyboards", [])
+        for wanted in expected:
+            if not isinstance(wanted, dict):
+                return False
+            actual = next((device for device in current
+                           if device.get("name") == wanted.get("name")
+                           and device.get("address") == wanted.get("address")), None)
+            if (not actual or not equivalent(actual, wanted)
+                    or actual.get("active_layout_index") != wanted.get("active_layout_index")):
+                return False
+        return True
+
+    def _restore_runtime(self, expected):
+        current = self.hypr.devices().get("keyboards", [])
+        for wanted in expected:
+            if any(device.get("name") == wanted.get("name")
+                   and device.get("address") == wanted.get("address") for device in current):
+                self.hypr.switch(wanted["name"], wanted["active_layout_index"])
+        if not self._runtime_matches(expected):
+            raise SettingsError("The previous keyboard setup could not be confirmed.")
 
     def save(self, pairs, shortcut, revision, event_device=""):
-        """Persist a validated layout set without replacing the live keymap."""
+        """Apply a validated layout set now, with durable file and runtime rollback."""
         with self.paths.lock():
             if self.paths.transaction.exists():
                 raise SettingsError("A previous file update needs recovery before editing again.")
@@ -340,45 +369,99 @@ class Session:
             saved["preferred"] = snap["group"]["id"]
             saved.setdefault("profiles", {})[snap["group"]["id"]] = targets
             written_profile = encoded(saved)
-            written_pending = render_deferred(saved)
+            written_data = render_deferred(saved)
+
+            current_ids = [row["id"] for row in snap["rows"]]
+            requested_ids = [row["id"] for row in rows]
+            active_id = current_ids[snap["active"]]
+            if active_id in requested_ids:
+                selected_id = active_id
+            else:
+                selected_id = next((identity for identity in requested_ids if identity in current_ids), "")
+                if not selected_id:
+                    raise SettingsError("Add a new layout before removing every layout available in this session.")
+            before_index = current_ids.index(selected_id)
+            after_index = requested_ids.index(selected_id)
+
+            previous_runtime = [{"name": device["name"], "address": device.get("address"),
+                                 "active_layout_index": device.get("active_layout_index", 0),
+                                 **{key: device.get(key, "") for key in OWNED}}
+                                for device in snap["group"]["members"]]
+            applied_runtime = [{"name": device["name"], "address": device.get("address"),
+                                "active_layout_index": after_index,
+                                **{key: target[key] for key in OWNED}}
+                               for device, target in zip(snap["group"]["members"], targets)]
             transaction = {
-                "kind": "deferred-save", "token": secrets.token_hex(16),
+                "kind": "live-save", "token": secrets.token_hex(16),
                 "profile": self.file_blob(self.paths.profile),
+                "active": self.file_blob(self.paths.active),
                 "pending": self.file_blob(self.paths.pending),
                 "writtenProfile": base64.b64encode(written_profile).decode(),
-                "writtenPending": base64.b64encode(written_pending).decode(),
+                "writtenActive": base64.b64encode(written_data).decode(),
+                "writtenPending": base64.b64encode(written_data).decode(),
+                "previousRuntime": previous_runtime,
+                "appliedRuntime": applied_runtime,
             }
             backup = self.paths.root / "backups" / transaction["token"]
             atomic(backup / "recovery.json", encoded(transaction))
             atomic(self.paths.transaction, encoded(transaction))
             try:
-                atomic(self.paths.pending, written_pending)
+                # Synchronize every interface on a layout that survives before
+                # removing the active layout or replacing any live keymap.
+                self._switch_members(snap["group"]["members"], before_index)
+                atomic(self.paths.active, written_data)
+                atomic(self.paths.pending, written_data)
                 atomic(self.paths.profile, written_profile)
-                if (self.paths.pending.read_bytes() != written_pending
+                if (self.paths.active.read_bytes() != written_data
+                        or self.paths.pending.read_bytes() != written_data
                         or self.paths.profile.read_bytes() != written_profile):
                     raise OSError("saved keyboard files failed readback")
+                self.hypr.reload()
+                self._switch_members(snap["group"]["members"], after_index)
+                if not self._runtime_matches(applied_runtime):
+                    raise SettingsError("The typing keyboard did not confirm the new layout setup.")
                 self.paths.transaction.unlink()
             except Exception as exc:
-                self._recover_files(transaction)
-                raise SettingsError("The layout edit was not saved. The previous files were restored.") from exc
-            return {"restartRequired": True}
+                try:
+                    self._rollback_live(transaction)
+                except Exception as recovery:
+                    raise SettingsError("The layout edit failed and automatic recovery could not be confirmed. The recovery record was retained.") from recovery
+                raise SettingsError("The layout edit could not be applied. The previous setup was restored.") from exc
+            return {"restartRequired": False}
 
-    def _recover_files(self, transaction):
-        conflicts = []
-        files = (("Profile", self.paths.profile), ("Pending", self.paths.pending))
-        # Recover a transaction written by the pre-release embedded-Lua build.
+    @staticmethod
+    def _transaction_files(transaction):
+        if transaction.get("kind") == "live-save":
+            return (("Profile", "profile"), ("Active", "active"), ("Pending", "pending"))
         if "writtenPending" not in transaction and "writtenOverride" in transaction:
-            files = (("Profile", self.paths.profile), ("Override", self.paths.override))
-        for key, path in files:
+            return (("Profile", "profile"), ("Override", "override"))
+        return (("Profile", "profile"), ("Pending", "pending"))
+
+    def _restore_transaction_files(self, transaction):
+        conflicts = []
+        for label, attribute in self._transaction_files(transaction):
+            path = getattr(self.paths, attribute)
             current = self.file_blob(path)
-            written = transaction.get("written" + key)
-            previous = transaction.get(key.lower())
+            written = transaction.get("written" + label)
+            previous = transaction.get(attribute)
             if current == written:
                 self.restore_blob(path, previous)
             elif current != previous:
                 conflicts.append(path.name)
         if conflicts:
             raise SettingsError("Saved keyboard files changed during recovery; they were preserved for manual review.")
+
+    def _rollback_live(self, transaction):
+        previous = transaction.get("previousRuntime")
+        if not isinstance(previous, list):
+            raise SettingsError("The live keyboard recovery record is incomplete.")
+        self._restore_transaction_files(transaction)
+        self.hypr.reload()
+        self._restore_runtime(previous)
+        self.paths.transaction.unlink(missing_ok=True)
+
+    def _recover_files(self, transaction):
+        self._restore_transaction_files(transaction)
         self.paths.transaction.unlink(missing_ok=True)
 
     def recover_pending(self):
@@ -386,9 +469,17 @@ class Session:
             return
         with self.paths.lock():
             transaction = self.paths.read(self.paths.transaction, None)
-            if not transaction or transaction.get("kind") != "deferred-save":
+            if not transaction or transaction.get("kind") not in ("deferred-save", "live-save"):
                 raise SettingsError("The saved keyboard transaction needs manual review.")
-            self._recover_files(transaction)
+            if transaction.get("kind") == "live-save":
+                if (all(self.file_blob(getattr(self.paths, attribute)) == transaction.get("written" + label)
+                        for label, attribute in self._transaction_files(transaction))
+                        and self._runtime_matches(transaction.get("appliedRuntime"))):
+                    self.paths.transaction.unlink()
+                else:
+                    self._rollback_live(transaction)
+            else:
+                self._recover_files(transaction)
 
     def reset_saved(self):
         """Called under the installation lock, only by explicit removal."""

@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "madmatt and contributors",
   "license": "MIT",
-  "description": "Native keyboard layout and variant picker with validated, restart-safe editing",
+  "description": "Native keyboard layout and variant picker with validated, immediate editing",
   "kinds": ["bar-widget"],
   "entryPoints": {"barWidget": "Keyboard.qml"},
   "barWidget": {

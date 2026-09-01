@@ -24,12 +24,14 @@ and a useful support report should not contain it.
 
 Common recovery paths:
 
-- A save interrupted between its two owned-file writes is checked by the next
-  helper request. External edits are preserved and the helper asks for manual
-  review rather than overwriting them.
-- Pending data is promoted during the first configuration load of a different
-  Hyprland session. If an update changed the loader format, review and run
-  `tools/plugin.py activate --apply`, then sign out or reboot once.
+- A save interrupted during its file/runtime transaction is checked by the next
+  helper request. A fully applied setup is finalized; otherwise the previous
+  files, keymap and active indices are restored. External edits are preserved and
+  the helper asks for manual review rather than overwriting them.
+- If an update changed the loader format, review and run
+  `tools/plugin.py activate --apply`. Legacy saved and active data that differ
+  must be reconciled before migration; follow the exact error rather than deleting
+  either file.
 - If a generic disable removed the widget, run `tools/plugin.py prepare-remove`
   from the installed checkout. It can restore the stock entry from the external
   receipt.

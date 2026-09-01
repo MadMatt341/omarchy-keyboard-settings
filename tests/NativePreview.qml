@@ -16,8 +16,9 @@ Scope {
         name: "KeyboardPicker"
         when: preview.capturesComplete
         function init() {
-            fake.state = Object.assign({}, fake.state, {configuredLayouts: fake.baseLayouts, configuredShortcut: "both-alt",
-                pendingRestart: false, active: 1, activeLayouts: [], problem: "", devices: [], device: "preview", revision: "preview"})
+            fake.state = Object.assign({}, fake.state, {layouts: fake.baseLayouts, configuredLayouts: fake.baseLayouts,
+                shortcut: "both-alt", configuredShortcut: "both-alt", pendingRestart: false, active: 1,
+                activeLayouts: [], problem: "", devices: [], device: "preview", revision: "preview"})
             fake.error = ""
             fake.saves = []
             fake.animationsEnabled = true
@@ -103,9 +104,11 @@ Scope {
             let remainingRemove = findChild(picker, "removeLayout0")
             verify(remainingRemove)
             compare(remainingRemove.enabled, false)
+            compare(fake.state.layouts.length, 1)
+            compare(fake.state.layouts[0].id, "us/")
+            compare(fake.state.active, 0)
             let warning = findChild(picker, "pendingRestart")
-            compare(warning.visible, true)
-            compare(warning.text, "Saved. Sign out or reboot to apply layout edits.")
+            compare(warning.visible, false)
             let captured = false
             card.grabToImage(function(result) {
                 verify(result.saveToFile(Quickshell.env("KEYBOARD_PREVIEW_OUTPUT") + "/editor-saved.png"))
@@ -134,10 +137,27 @@ Scope {
             compare(fake.saves[0].layouts.join(","), "pl/,us/")
             compare(fake.saves[0].shortcut, "both-alt")
             tryCompare(selector, "value", "pl/")
-            compare(fake.state.layouts.map(row => row.id).join(","), "us/,pl/")
-            compare(fake.state.active, 1)
-            verify(fake.state.pendingRestart)
+            compare(fake.state.layouts.map(row => row.id).join(","), "pl/,us/")
+            compare(fake.state.active, 0)
+            compare(fake.state.layouts[fake.state.active].id, "pl/")
+            verify(!fake.state.pendingRestart)
             console.log("NATIVE_DEFAULT_LAYOUT_OK")
+        }
+        function test_added_layout_is_immediately_switchable() {
+            picker.go("search")
+            wait(20)
+            picker.add(fake.catalog[2], fake.catalog[2].variants[0])
+            tryCompare(fake, "saveCount", 1)
+            tryVerify(() => picker.editorRows.length === 3)
+            compare(fake.state.layouts.map(row => row.id).join(","), "us/,pl/,de/")
+            compare(fake.state.configuredLayouts.map(row => row.id).join(","), "us/,pl/,de/")
+            picker.go("picker")
+            wait(20)
+            compare(picker.rows.length, 3)
+            fake.switchTo(2)
+            compare(fake.state.active, 2)
+            compare(fake.current.id, "de/")
+            console.log("NATIVE_IMMEDIATE_ADD_OK")
         }
         function test_menu_tooltips(data) {
             fake.state = Object.assign({}, fake.state, {
@@ -297,8 +317,12 @@ Scope {
         function save(ids, shortcut) {
             saves = saves.concat([{layouts: ids.slice(), shortcut: shortcut}])
             let all = baseLayouts.concat([{id: "de/", layout: "de", variant: "", label: "German", variantLabel: "Standard", code: "DE", country: "de"}])
-            state = Object.assign({}, state, {configuredLayouts: ids.map(id => all.find(row => row.id === id)),
-                configuredShortcut: shortcut, pendingRestart: true})
+            let activeId = current ? current.id : ""
+            let rows = ids.map(id => all.find(row => row.id === id))
+            let active = ids.indexOf(activeId)
+            if (active < 0) active = 0
+            state = Object.assign({}, state, {layouts: rows, configuredLayouts: rows, active: active,
+                shortcut: shortcut, configuredShortcut: shortcut, pendingRestart: false})
             completed("save")
         }
         function request(name, args) { console.log("PREVIEW ONLY", name) }

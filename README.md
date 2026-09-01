@@ -7,9 +7,9 @@ independent plugin and is not an official Omarchy project.
 ![Keyboard Settings editor](preview.png)
 
 The planned first release is a **public beta**. The current `0.1.0` source is a
-pre-release candidate: automated and isolated checks pass on the recorded Omarchy
-environment, while final physical typing, login and clean-system acceptance remain
-listed in [VALIDATION.md](VALIDATION.md).
+pre-release candidate: automated, login and physical-typing checks pass on the
+recorded Omarchy environment, while the remaining live and clean-system acceptance
+items are listed in [VALIDATION.md](VALIDATION.md).
 
 ## What it does
 
@@ -21,9 +21,12 @@ listed in [VALIDATION.md](VALIDATION.md).
 - Refuse ambiguous keyboards, custom keymaps and unsafe shortcut maps instead of
   guessing.
 
-Saved edits take effect after the next graceful sign-out or reboot. The editor
-never replaces the live keymap. Switching from the picker uses only Hyprland's
-existing loaded layouts and does not reorder the saved login default.
+Saved edits take effect immediately. If an edit removes the active layout, the
+plugin first switches every verified typing interface to a layout that will
+remain. It then reloads the validated plugin-owned configuration, restores that
+layout at its new position, and verifies the result. A failure restores both the
+previous files and the previous runtime setup. Switching from the picker still
+uses only Hyprland's already loaded layouts and does not reorder the login default.
 
 The indicator rolls through a country flag when switching. Set `"animate": false`
 on its bar entry to disable that feedback; reduced compositor motion is respected.
@@ -42,10 +45,11 @@ Python's standard library and installed system keyboard data. There are no pip
 packages, downloads or web services at runtime.
 
 Your Hyprland Lua configuration must load `default.hypr.toggles`. Activation
-installs one fixed, plugin-owned Lua loader. Saves update only inert pending data;
-the loader records the saving compositor session and promotes the data during the
-first configuration load of a different session. Reloads in the saving session
-continue to use the active data. The plugin never rewrites your `input.lua`.
+installs one fixed, plugin-owned Lua loader. A save atomically updates strict,
+non-executable active and fallback data, reloads Hyprland, and verifies all typing
+interfaces. The first saved layout remains the default at the next login. The
+session-bound fallback also supports recovery from older pending data. The plugin
+never rewrites your `input.lua`.
 
 ## Install from Git
 
@@ -60,7 +64,7 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py acti
 ```
 
 Activation replaces exactly one stock keyboard indicator in place, preserving
-its entry settings and center anchoring. It installs the fixed deferred-login
+its entry settings and center anchoring. It installs the fixed keyboard
 loader and stores the original entry and a bar backup under
 `$XDG_STATE_HOME/omarchy/keyboard-settings/`, outside the Git checkout. Installing
 the loader may make Hyprland re-read its configuration, but the loader uses the
@@ -96,7 +100,7 @@ omarchy plugin remove madmatt.keyboard-settings
 ```
 
 By default, preparation restores the stock indicator and backs up and removes
-the plugin-owned loader plus its active and pending data, returning ownership to
+the plugin-owned loader plus its active and fallback data, returning ownership to
 your existing Lua configuration. To keep the saved login keyboard configuration
 active after removing the UI, use:
 

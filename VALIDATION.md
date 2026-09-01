@@ -502,3 +502,43 @@ remains NO-GO** until the remaining popup/focus/bar-edge checks, device replacem
 and applicable IME check, another-account lifecycle, private beta, executed CI and
 marketplace checks are complete. No repository push, tag, release or marketplace
 submission occurred.
+
+## Immediate-edit contract correction — 2026-09-02
+
+Manual popup acceptance exposed a release-blocking product gap in the deferred
+contract: removing Danish changed only the editor while the main picker and both-Alt
+cycle retained it; adding Arabic produced the inverse split. The automated tests
+did not miss an implementation regression. They encoded and positively asserted
+the wrong product requirement: saved and runtime lists were expected to differ
+until reboot. That contract has been removed. Layout, variant, default-order and
+shortcut edits must now apply to the running session before the action succeeds.
+
+The candidate under release-input fingerprint
+`da9511df8314c95065c74bf43481364564b4f6a930e4dd28cfaf89fd6355caea`
+implements a guarded live transaction. It preserves the active layout identity
+when possible; before removing an active layout, it synchronizes every verified
+typing interface to a requested layout that is already live. It then writes and
+reads back strict active/fallback data plus the profile, reloads the fixed loader,
+selects the survivor at its new index, and verifies configuration and index on
+every interface. Replacing every live layout in one request is refused, allowing
+the user to add a replacement before removing the final old layout. Any failure
+restores prior files, reloads the old configuration, restores the prior indices
+and verifies recovery. Interrupted transactions are finalized only when both the
+intended files and intended runtime already match; otherwise they roll back.
+
+| Corrected gate | Result |
+| --- | --- |
+| Python backend/integration | **59 passed**. Focused coverage now proves immediate runtime/file agreement, follow-up edits from live state, active-layout removal only after a survivor switch, active identity across default reordering, refusal of a no-survivor replacement, rollback after file, reload and post-reload switch failures, interrupted rollback, and interrupted-success finalization. |
+| Native UI | **16 passed, 0 failed**. Removing the second layout immediately changes the main model and disables the final ×; adding German immediately adds a switchable main-picker row; default reordering updates runtime order while preserving the active language. Search p95 was 11 ms, the coalesced refresh check was 204 ms, RSS growth was 56 KiB, file descriptors did not grow and no helper was orphaned. |
+| Performance | Passed: catalog cold p95 110.1 ms, warm p95 74.9 ms, one-layout live save p95 28.8 ms, four-layout live save p95 90.3 ms, search p95 0.072 ms and five-minute-equivalent idle cost 0.366% of one core. |
+| Distribution | Fresh package build, reproducibility fixture, archive inspection and Omarchy validation passed. `git diff --check` passed, and the release-input fingerprint was unchanged after the full gate. |
+| Documentation/security | README, feature contract, publication notes, support guidance, security boundary, manifest and contributor rules now describe immediate guarded application and retain the fixed loader only as the durable configuration path. |
+
+**Current verdict: GO for offline validation of the immediate-edit candidate;
+NO-GO for publication.** The exact candidate still needs installation and live
+add/remove/default/shortcut acceptance on the verified machine, including removal
+of the currently active layout and restoration of the intended `US, Polish,
+Danish / both Alt` profile. The remaining bar-edge/scale, keyboard replacement,
+applicable IME, another-account lifecycle, private beta, CI and marketplace gates
+also remain open. No repository push, tag, release or marketplace submission
+occurred.

@@ -283,7 +283,7 @@ FocusScope {
                     objectName: "pendingRestart"
                     visible: root.view.pendingRestart || false
                     width: parent.width
-                    text: "Saved. Sign out or reboot to apply layout edits."
+                    text: "Saved and active layouts differ. Your next edit will apply this list immediately."
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                     font.family: Style.font.family

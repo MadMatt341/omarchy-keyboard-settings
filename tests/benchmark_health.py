@@ -47,7 +47,7 @@ def fixture(directory):
     records = [record(), record("typing-keyboard-aux"), record("mouse-keyboard", "usb-mouse")]
     records[-1]["primary"] = False
     records.append(dict(name="mouse", group="usb-mouse", typing=False, pointer=True, primary=False))
-    return Session(paths, FakeHyprland(), records)
+    return Session(paths, FakeHyprland(paths), records)
 
 
 def main():

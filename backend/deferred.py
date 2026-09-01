@@ -1,4 +1,4 @@
-"""Static Hyprland loader and non-executable deferred keyboard data."""
+"""Static Hyprland loader and strict, non-executable keyboard data."""
 import os
 from pathlib import Path
 import re
@@ -177,7 +177,7 @@ def render(saved, session=None):
 
 
 def decode(data):
-    """Validate deferred data and return its saving session and device rows."""
+    """Validate keyboard data and return its saving session and device rows."""
     if not isinstance(data, bytes) or not data.endswith(b"\n"):
         raise ValueError("invalid deferred keyboard data")
     if data.startswith(DATA_HEADER):
@@ -224,7 +224,7 @@ def parse(data):
 
 
 def saved_session(data):
-    """Return the compositor session recorded in validated deferred data."""
+    """Return the compositor session recorded in validated keyboard data."""
     return decode(data)[0]
 
 

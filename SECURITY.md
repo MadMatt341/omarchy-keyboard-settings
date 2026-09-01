@@ -23,12 +23,13 @@ command during new-session promotion only to set mode `0600` and sync its state
 file; paths are single-quoted and no device or user-entered value enters that
 command.
 
-The fixed loader compares the pending file's validated saving-session identifier
-with Hyprland's current instance signature. It intentionally promotes and applies
-different pending data during the first configuration load of the next compositor
-session. Pending edits are validated with libxkbcommon, serialized under a bounded
-lock, written atomically with recovery records, and verified by readback. Runtime
-switching addresses only verified typing interfaces and uses already loaded layouts.
+Edits are validated with libxkbcommon and serialized under a bounded lock. Before
+removing an active layout, the helper switches every verified typing interface to
+a surviving layout. It writes strict active and fallback data atomically, reloads
+the fixed loader, verifies each interface, and restores both files and runtime on
+failure. The loader retains session-bound promotion for compatible older pending
+data. Runtime switching addresses only verified typing interfaces; the plugin does
+not expose the former `hyprctl eval hl.device` path.
 
 The supported security-update line is the latest published beta release. Until a
 public release exists, only the exact commits recorded in `VALIDATION.md` have

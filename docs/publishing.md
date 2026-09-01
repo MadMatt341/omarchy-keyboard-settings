@@ -28,7 +28,7 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py acti
 Generic enable inserts a plugin widget rather than replacing the stock keyboard
 entry. The activation helper instead replaces exactly one stock entry in place,
 preserves its settings and center anchor, and stores a receipt outside the Git
-checkout. It also installs the fixed deferred-login loader; the loader's active
+checkout. It also installs the fixed keyboard loader; the loader's active
 data matches the live keyboard during migration, so activation does not change
 the current keyboard settings. Commands without `--apply` report the proposed
 action only.
@@ -69,7 +69,7 @@ remove it again. See the exact user and migration flows in
 | --- | --- |
 | Plugin contract | Root `manifest.json`, stable ID `madmatt.keyboard-settings`, root `Keyboard.qml` entry point and native-only runtime. |
 | Git lifecycle | Dry-run activation and preparation for removal, external receipt/backups, retained-settings option, generic-disable repair and copied-install migration. |
-| Safety | Deferred validated saves use inert session-bound pending data and a fixed loader that promotes only in a different compositor session, with readback, atomic recovery, bounded locking, no raw input or live layout-set replacement. |
+| Safety | Validated edits select a surviving layout, atomically write strict plugin-owned data, reload the fixed loader, verify every typing interface, and roll back files plus runtime on failure. Bounded locking, stale-revision checks and recovery records remain; there is no raw-input capture or `hyprctl eval hl.device`. |
 | Performance | Source-hashed XKB catalog cache outside the watched checkout, event-query coalescing and offline latency budgets. |
 | Packaging | Manifest-derived version/file selection, empty stage, Omarchy validation, normalized deterministic archive and checksum. |
 | Rights/support | MIT license, support guide, private security-report route and privacy-safe diagnostics. No third-party code or media is bundled. |
@@ -138,8 +138,8 @@ security audit.
 | Category | `Hardware`, pending current-schema check |
 | Tags | `bar`, `hyprland`, `quickshell` |
 | Preview | `preview.png` |
-| Summary | Native keyboard layout and variant picker with validated, restart-safe editing. |
-| Maintainer notes | Independent plugin; deferred login-time settings, explicit configuration ownership, no typed-text collection, tested-version scope and reversible preparation for removal. |
+| Summary | Native keyboard layout and variant picker with validated, immediate editing. |
+| Maintainer notes | Independent plugin; guarded live settings with runtime rollback, explicit configuration ownership, no typed-text collection, tested-version scope and reversible preparation for removal. |
 
 The marketplace may classify the lifecycle and legacy installer tools as an
 installer capability requiring maintainer review. Keep their behavior explicit;

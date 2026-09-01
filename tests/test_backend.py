@@ -152,16 +152,26 @@ class DeviceTests(unittest.TestCase):
 
 
 class FakeHyprland:
-    def __init__(self):
+    def __init__(self, paths=None):
         self.items = [keyboard(), keyboard('typing-keyboard-aux', 'two'), keyboard('mouse-keyboard', 'mouse')]
+        self.base = copy.deepcopy(self.items)
+        self.paths = paths
         self.calls = []
+        self.switches = []
         self.fail_reload = False
+        self.fail_switch_at = 0
+        self.switch_attempts = 0
 
     def devices(self): return {'keyboards': copy.deepcopy(self.items)}
     def check(self): pass
 
     def switch(self, name, index):
+        self.switch_attempts += 1
         self.calls.append(('switch', name))
+        self.switches.append((name, index))
+        if self.fail_switch_at == self.switch_attempts:
+            self.fail_switch_at = 0
+            raise SettingsError('injected switch failure')
         next(d for d in self.items if d['name'] == name)['active_layout_index'] = index
 
     def reload(self):
@@ -169,6 +179,14 @@ class FakeHyprland:
         if self.fail_reload:
             self.fail_reload = False
             raise SettingsError('injected reload failure')
+        if not self.paths:
+            return
+        targets = parse_deferred(self.paths.active.read_bytes()) if self.paths.active.exists() else []
+        by_name = {target['name']: target for target in targets}
+        for item, baseline in zip(self.items, self.base):
+            for key in ('layout', 'variant', 'options'):
+                item[key] = by_name.get(item['name'], baseline).get(key, '')
+            item['active_layout_index'] = 0
 
 
 class DeferredLoaderTests(unittest.TestCase):
@@ -276,10 +294,13 @@ class TransactionTests(unittest.TestCase):
         self.input = self.paths.main.with_name('input.lua')
         self.input.write_text('-- original user file; never rewritten\n')
         atomic(self.paths.override, LOADER)
-        empty = render_deferred({'profiles': {}})
-        atomic(self.paths.active, empty)
-        atomic(self.paths.pending, empty)
-        self.hypr = FakeHyprland()
+        self.hypr = FakeHyprland(self.paths)
+        initial = render_deferred({'profiles': {'fixture': [
+            {'name': device['name'], **{key: device[key] for key in ('layout', 'variant', 'options')}}
+            for device in self.hypr.items[:2]
+        ]}})
+        atomic(self.paths.active, initial)
+        atomic(self.paths.pending, initial)
         records = [record(), record('typing-keyboard-aux'), record('mouse-keyboard', 'usb-mouse')]
         records[-1]['primary'] = False
         records += [dict(name='mouse', group='usb-mouse', typing=False, pointer=True, primary=False)]
@@ -290,34 +311,66 @@ class TransactionTests(unittest.TestCase):
         status = self.session.status()
         return self.session.save(pairs or ['us/', 'de/'], shortcut, status['revision'])
 
-    def test_save_writes_owned_files_without_live_keymap_changes(self):
+    def test_save_applies_owned_files_and_runtime_immediately(self):
         with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
             result = self.save()
-        self.assertEqual(result, {'restartRequired': True})
+        self.assertEqual(result, {'restartRequired': False})
         self.assertEqual(self.input.read_text(), '-- original user file; never rewritten\n')
         self.assertEqual(self.paths.override.read_bytes(), LOADER)
-        targets = parse_deferred(self.paths.pending.read_bytes())
-        self.assertEqual(saved_session(self.paths.pending.read_bytes()), 'session-a')
+        self.assertEqual(self.paths.active.read_bytes(), self.paths.pending.read_bytes())
+        targets = parse_deferred(self.paths.active.read_bytes())
+        self.assertEqual(saved_session(self.paths.active.read_bytes()), 'session-a')
         self.assertEqual({target['layout'] for target in targets}, {'us,de'})
         self.assertTrue(all('compose:caps,shift:both_capslock_cancel' in target['options']
                             for target in targets))
         self.assertFalse(any('mouse' in target['name'] for target in targets))
         self.assertEqual(len(list((self.paths.root / 'backups').glob('*/recovery.json'))), 1)
-        self.assertEqual(self.hypr.items, self.original)
-        self.assertEqual(self.hypr.calls, [])
+        self.assertTrue(all(device['layout'] == 'us,de' for device in self.hypr.items[:2]))
+        self.assertTrue(all(device['active_layout_index'] == 0 for device in self.hypr.items[:2]))
+        self.assertEqual(self.hypr.calls, [('switch', 'typing-keyboard'), ('switch', 'typing-keyboard-aux'),
+                                          ('reload', ''), ('switch', 'typing-keyboard'),
+                                          ('switch', 'typing-keyboard-aux')])
         self.assertFalse(self.paths.transaction.exists())
         status = self.session.status()
+        self.assertEqual([row['id'] for row in status['layouts']], ['us/', 'de/'])
         self.assertEqual([row['id'] for row in status['configuredLayouts']], ['us/', 'de/'])
-        self.assertTrue(status['pendingRestart'])
+        self.assertFalse(status['pendingRestart'])
 
-    def test_follow_up_save_uses_the_pending_configuration(self):
+    def test_follow_up_save_uses_the_live_configuration(self):
         self.save()
         status = self.session.status()
         self.session.save(['us/'], 'bar', status['revision'])
         status = self.session.status()
         self.assertEqual([row['id'] for row in status['configuredLayouts']], ['us/'])
         self.assertEqual(status['configuredShortcut'], 'bar')
-        self.assertEqual([row['id'] for row in status['layouts']], ['us/', 'pl/'])
+        self.assertEqual([row['id'] for row in status['layouts']], ['us/'])
+        self.assertEqual(status['shortcut'], 'bar')
+        self.assertFalse(status['pendingRestart'])
+
+    def test_removing_the_active_layout_switches_to_a_survivor_first(self):
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        self.save(['us/', 'de/'])
+        self.assertEqual(self.hypr.switches[:2], [('typing-keyboard', 0), ('typing-keyboard-aux', 0)])
+        self.assertTrue(all(device['layout'] == 'us,de' and device['active_layout_index'] == 0
+                            for device in self.hypr.items[:2]))
+
+    def test_reordering_preserves_the_active_layout_identity(self):
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        self.save(['pl/', 'us/'])
+        self.assertEqual(self.hypr.switches[:2], [('typing-keyboard', 1), ('typing-keyboard-aux', 1)])
+        self.assertTrue(all(device['layout'] == 'pl,us' and device['active_layout_index'] == 0
+                            for device in self.hypr.items[:2]))
+        status = self.session.status()
+        self.assertEqual(status['layouts'][status['active']]['id'], 'pl/')
+
+    def test_replacing_every_live_layout_is_refused(self):
+        before = {path: path.read_bytes() for path in (self.paths.active, self.paths.pending)}
+        with self.assertRaisesRegex(SettingsError, 'Add a new layout'):
+            self.save(['de/'])
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
+        self.assertEqual(self.hypr.items, self.original)
         self.assertEqual(self.hypr.calls, [])
 
     def test_stale_revision_is_rejected_before_change(self):
@@ -339,7 +392,9 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(self.paths.transaction.exists())
         self.assertEqual(self.hypr.calls, [])
 
-    def test_permission_failure_during_save_restores_owned_files(self):
+    def test_permission_failure_during_save_restores_files_and_runtime(self):
+        before = {path: self.session.file_blob(path) for path in
+                  (self.paths.profile, self.paths.active, self.paths.pending)}
         original_atomic = atomic
 
         def fail_profile(path, content):
@@ -348,13 +403,100 @@ class TransactionTests(unittest.TestCase):
             return original_atomic(path, content)
 
         with patch('backend.session.atomic', side_effect=fail_profile):
-            with self.assertRaisesRegex(SettingsError, 'previous files were restored'):
+            with self.assertRaisesRegex(SettingsError, 'previous setup was restored'):
                 self.save()
         self.assertEqual(self.paths.override.read_bytes(), LOADER)
-        self.assertEqual(parse_deferred(self.paths.pending.read_bytes()), [])
-        self.assertFalse(self.paths.profile.exists())
+        self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
         self.assertFalse(self.paths.transaction.exists())
+        self.assertEqual(self.hypr.items, self.original)
+        self.assertIn(('reload', ''), self.hypr.calls)
+
+    def test_reload_failure_restores_files_and_runtime(self):
+        before = {path: self.session.file_blob(path) for path in
+                  (self.paths.profile, self.paths.active, self.paths.pending)}
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        previous = copy.deepcopy(self.hypr.items)
+        self.hypr.fail_reload = True
+        with self.assertRaisesRegex(SettingsError, 'previous setup was restored'):
+            self.save(['us/', 'de/'])
+        self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
+        self.assertEqual(self.hypr.items, previous)
+        self.assertFalse(self.paths.transaction.exists())
+
+    def test_post_reload_switch_failure_restores_files_and_runtime(self):
+        before = {path: self.session.file_blob(path) for path in
+                  (self.paths.profile, self.paths.active, self.paths.pending)}
+        self.hypr.fail_switch_at = 3
+        with self.assertRaisesRegex(SettingsError, 'previous setup was restored'):
+            self.save(['pl/', 'us/'])
+        self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
+        self.assertEqual(self.hypr.items, self.original)
+        self.assertFalse(self.paths.transaction.exists())
+
+    def test_interrupted_live_save_rolls_back_on_next_status(self):
+        previous_files = {key: self.session.file_blob(path) for key, path in
+                          (('profile', self.paths.profile), ('active', self.paths.active),
+                           ('pending', self.paths.pending))}
+        previous_runtime = [{'name': device['name'], 'address': device['address'],
+                             'active_layout_index': device['active_layout_index'],
+                             **{key: device[key] for key in ('layout', 'variant', 'options')}}
+                            for device in self.hypr.items[:2]]
+        targets = [{'name': device['name'], 'layout': 'us,de', 'variant': ',',
+                    'options': device['options']} for device in self.hypr.items[:2]]
+        written_data = render_deferred({'profiles': {'fixture': targets}})
+        written_profile = encoded({'profiles': {'fixture': targets}})
+        transaction = {'kind': 'live-save', 'token': 'fixture', **previous_files,
+                       'writtenProfile': base64.b64encode(written_profile).decode(),
+                       'writtenActive': base64.b64encode(written_data).decode(),
+                       'writtenPending': base64.b64encode(written_data).decode(),
+                       'previousRuntime': previous_runtime,
+                       'appliedRuntime': []}
+        atomic(self.paths.active, written_data)
+        atomic(self.paths.transaction, encoded(transaction))
+        self.session.recover_pending()
+        self.assertEqual({key: self.session.file_blob(path) for key, path in
+                          (('profile', self.paths.profile), ('active', self.paths.active),
+                           ('pending', self.paths.pending))}, previous_files)
+        self.assertEqual(self.hypr.items, self.original)
+        self.assertFalse(self.paths.transaction.exists())
+
+    def test_fully_applied_interrupted_live_save_is_finalized(self):
+        targets = [{'name': device['name'], 'layout': 'us,de', 'variant': ',',
+                    'options': device['options']} for device in self.hypr.items[:2]]
+        written_data = render_deferred({'profiles': {'fixture': targets}})
+        written_profile = encoded({'profiles': {'fixture': targets}})
+        previous_runtime = [{'name': device['name'], 'address': device['address'],
+                             'active_layout_index': device['active_layout_index'],
+                             **{key: device[key] for key in ('layout', 'variant', 'options')}}
+                            for device in self.hypr.items[:2]]
+        previous_files = {key: self.session.file_blob(path) for key, path in
+                          (('profile', self.paths.profile), ('active', self.paths.active),
+                           ('pending', self.paths.pending))}
+        atomic(self.paths.profile, written_profile)
+        atomic(self.paths.active, written_data)
+        atomic(self.paths.pending, written_data)
+        self.hypr.reload()
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        applied_runtime = [{'name': device['name'], 'address': device['address'],
+                            'active_layout_index': device['active_layout_index'],
+                            **{key: device[key] for key in ('layout', 'variant', 'options')}}
+                           for device in self.hypr.items[:2]]
+        transaction = {'kind': 'live-save', 'token': 'fixture', **previous_files,
+                       'writtenProfile': base64.b64encode(written_profile).decode(),
+                       'writtenActive': base64.b64encode(written_data).decode(),
+                       'writtenPending': base64.b64encode(written_data).decode(),
+                       'previousRuntime': previous_runtime, 'appliedRuntime': applied_runtime}
+        atomic(self.paths.transaction, encoded(transaction))
+        self.hypr.calls.clear()
+        self.session.recover_pending()
+        self.assertEqual(self.paths.active.read_bytes(), written_data)
+        self.assertEqual(self.paths.pending.read_bytes(), written_data)
+        self.assertTrue(all(device['layout'] == 'us,de' and device['active_layout_index'] == 1
+                            for device in self.hypr.items[:2]))
         self.assertEqual(self.hypr.calls, [])
+        self.assertFalse(self.paths.transaction.exists())
 
     def test_corrupt_saved_state_is_refused_without_mutation(self):
         self.paths.profile.parent.mkdir(parents=True, exist_ok=True)

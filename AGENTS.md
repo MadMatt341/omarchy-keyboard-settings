@@ -20,7 +20,7 @@ Read [README.md](README.md) for commands, then the relevant part of
 | Physical keyboard grouping | `backend/devices.py` |
 | Active interface, observation cache | `backend/session.py` (`layout_activity`, `status`) |
 | Character and shortcut validation | `backend/keymap.py` |
-| Deferred save, persistence and recovery | `backend/session.py` |
+| Live save, persistence and recovery | `backend/session.py` |
 | Fixed Lua loader and inert active/pending data | `backend/deferred.py` |
 | Git activation/removal | `tools/plugin.py`, `tests/test_integration.py` |
 | Package contents and legacy copied installs | `tools/package_support.py`, `tools/package.py`, `tools/install.py`, `manifest.json`, `qmldir` |
@@ -29,9 +29,9 @@ Read [README.md](README.md) for commands, then the relevant part of
 ## Rules that protect typing and user configuration
 
 - Keep active layout separate from the first saved layout (login default). Synchronize verified typing interfaces after runtime switching.
-- Route layout/variant/default/shortcut edits through `Session.save()`. Keep them deferred until login/reboot: saves may update only the profile and inert pending data, never the watched Lua loader or active data. Preserve locking, revision checks, transaction backups and readback verification.
+- Route layout/variant/default/shortcut edits through `Session.save()`. Apply them as one guarded live transaction: keep or select a surviving layout before reload, write only plugin-owned profile/active/pending data, reload the fixed loader, verify every typing interface, and restore files plus runtime on failure. Preserve locking, revision checks, transaction backups and readback verification.
 - Preserve unrelated XKB options. Validate the candidate with libxkbcommon before applying it. `both-alt` is `grp:alt_altgr_toggle`; `grp:alts_toggle` breaks the tested Polish AltGr map.
-- Do not guess a device from Hyprland's `main` flag or overwrite custom keymaps. Do not reintroduce live keymap replacement, capture raw input events or add a typing-text store.
+- Do not guess a device from Hyprland's `main` flag or overwrite custom keymaps. Do not reintroduce `hyprctl eval hl.device`, capture raw input events or add a typing-text store.
 - Use installed `qs.Ui` / `qs.Commons` components and style tokens. Keep keyboard focus, ordinary text entry, stable flag/label sizing, readable ambiguity indicators and reduced-motion behavior working.
 - Keep helper bytecode disabled: caches in the installed plugin tree trigger shell reloads. Generate scratch files, logs and packages under ignored `work/`.
 - Develop in this checkout; do not edit packaged Omarchy files or installed plugin copies as an implementation shortcut. Live install/removal or keyboard changes need authorization in the task. Do not infer it from an old validation record.
@@ -52,7 +52,7 @@ Transaction/device/keymap regressions belong in `tests/test_backend.py`; lifecyc
 and installer checks in `tests/test_integration.py`; active-interface
 cache checks in `tests/test_activity.py`; native UI checks in `tests/NativePreview.qml`.
 Keep tests isolated from live keyboard configuration. The helper's `status` writes
-observation state and can recover an interrupted deferred file transaction; it is not a pure read.
+observation state and can recover an interrupted live file/runtime transaction; it is not a pure read.
 
 ## Keep handoffs small
 

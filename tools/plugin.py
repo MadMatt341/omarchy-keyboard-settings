@@ -46,7 +46,7 @@ def _restore(path, content):
 
 
 def _loader_plan(paths):
-    """Plan a safe migration from embedded Lua to static deferred data."""
+    """Plan a safe migration from embedded Lua to strict static keyboard data."""
     current = _blob(paths.override)
     if current not in (None, LOADER) and not current.startswith(MARKER.encode()):
         raise SettingsError("The saved keyboard override is not owned by this picker.")
@@ -60,7 +60,7 @@ def _loader_plan(paths):
                 raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before activation.") from exc
 
     if len(decoded) == 1:
-        raise SettingsError("The deferred keyboard data is incomplete. Recover it before activation.")
+        raise SettingsError("The keyboard data is incomplete. Recover it before activation.")
 
     complete = (current == LOADER and len(decoded) == 2
                 and all(_blob(path).startswith(DATA_HEADER) for path in decoded))
@@ -72,7 +72,7 @@ def _loader_plan(paths):
         different = decoded[paths.active] != decoded[paths.pending]
         session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
         if different and not session:
-            raise SettingsError("Refresh the deferred loader from the active Hyprland session.")
+            raise SettingsError("Refresh the fixed keyboard loader from the active Hyprland session.")
         active_blob, pending_blob = _blob(paths.active), _blob(paths.pending)
         desired = {
             paths.active: (active_blob if active_blob.startswith(DATA_HEADER)
@@ -96,7 +96,7 @@ def _loader_plan(paths):
     if profile_blob is not None:
         status = Session(paths).status()
         if status["pendingRestart"]:
-            raise SettingsError("Log out once to apply the saved keyboard edit before migrating its deferred loader.")
+            raise SettingsError("Apply or reconcile the legacy saved keyboard edit before migrating its loader.")
     elif current not in (None, LOADER):
         raise SettingsError("The legacy keyboard override has no saved profile to migrate safely.")
 
@@ -133,8 +133,8 @@ def activate(apply=False, source=ROOT):
                if isinstance(entries, list) for entry in entries):
             raise SettingsError("The stock and replacement indicators are both present. Review the bar before refreshing.")
         loader_plan, loader_profile = _loader_plan(paths)
-        print("Would refresh the deferred-login loader without changing the bar or current layout." if loader_plan else
-              "The deferred-login loader is already current; no files would change.")
+        print("Would refresh the fixed keyboard loader without changing the bar or current layout." if loader_plan else
+              "The fixed keyboard loader is already current; no files would change.")
         if not apply or not loader_plan:
             return
         with paths.lock():
@@ -152,7 +152,7 @@ def activate(apply=False, source=ROOT):
                 for path, (previous, _) in loader_plan.items():
                     _restore(path, previous)
                 raise
-        print("Refreshed the deferred-login loader. The current keyboard layout was unchanged.")
+        print("Refreshed the fixed keyboard loader. The current keyboard layout was unchanged.")
         return
 
     section, index, _ = location(settings, STOCK)
@@ -160,7 +160,7 @@ def activate(apply=False, source=ROOT):
     loader_plan, loader_profile = _loader_plan(paths)
     print("Would replace the stock keyboard indicator in its existing slot.")
     if loader_plan:
-        print("Would install the fixed deferred-login loader without changing the current layout.")
+        print("Would install the fixed keyboard loader without changing the current layout.")
     print("No user-authored Lua, system files, or installed source would change.")
     if not apply:
         return
