@@ -442,3 +442,31 @@ third clean reboot must prove promotion and login-default behavior. Physical
 Polish typing, both Alt press orders and the remaining manual/system acceptance
 items are still open. No repository push, tag, release or marketplace submission
 occurred.
+
+## Third reboot acceptance — 2026-09-01
+
+The installed Git checkout was updated to exact clean commit
+`dccfad2ec464ca6a75ca9a1d6c10b98b0fb681ff`, which contains the tested loader
+correction and this evidence ledger. Idempotent activation refreshed the loader
+and rebound the distinct pending edit to the current instance before the watched
+file changed. The live runtime remained `US, Polish, Danish`, the saved candidate
+remained `Polish, US / both Alt`, `pendingRestart` remained true, all owned files
+were mode `0600`, the loader matched source and `hyprctl configerrors` was empty.
+The redacted baseline is
+`work/live-acceptance/e49a549/pre-third-reboot.json`.
+
+After a full `omarchy system reboot`, both the boot identifier and compositor
+instance changed. Runtime and saved state both reported `Polish, US`, Polish was
+active at index zero, and `pendingRestart` was false. The active file hash became
+the exact pre-reboot pending hash; pending itself, the fixed loader, shell bar
+configuration and activation receipt were unchanged. Active and pending data now
+match, their modes and the loader mode remain `0600`, no temporary or probe file
+remains, the plugin checkout is still exact and clean, and
+`hyprctl configerrors` is empty. The redacted result is
+`work/live-acceptance/e49a549/post-third-reboot.json`.
+
+**Current verdict: the deferred-save/login blocker is resolved on the verified
+Omarchy 4.0.2 and Hyprland 0.56.2 environment. Publication remains NO-GO** until
+physical Polish typing and both Alt press orders, the remaining live popup/device
+checks, another-account lifecycle, private beta, CI and marketplace checks are
+complete. No repository push, tag, release or marketplace submission occurred.
