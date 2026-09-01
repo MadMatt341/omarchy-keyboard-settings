@@ -542,3 +542,39 @@ Danish / both Alt` profile. The remaining bar-edge/scale, keyboard replacement,
 applicable IME, another-account lifecycle, private beta, CI and marketplace gates
 also remain open. No repository push, tag, release or marketplace submission
 occurred.
+
+### Live immediate-edit acceptance
+
+The installed Git checkout was fast-forwarded from its existing local development
+origin to exact clean commit `b9d7720948d4a3e57a081d7515649ef215d63138`.
+Activation reported that the fixed loader was already current. Before correction,
+the redacted helper state reproduced the manual finding: runtime was `US, Polish,
+Danish`, configured state was `US, Polish, Arabic`, Polish was active, both-Alt was
+configured, and `pendingRestart` was true across a verified two-interface group.
+
+The new live transaction first reconciled that split to `US, Polish, Danish` while
+preserving Polish as active. A redacted automated live sequence then verified:
+
+- removing non-active Danish immediately produced matching `US, Polish` runtime
+  and configured lists with Polish still active;
+- adding Danish immediately restored a switchable three-layout runtime list;
+- after selecting Danish, removing it switched both interfaces to surviving US
+  before applying the two-layout list;
+- making Polish the first/login-default row preserved active US at its new index;
+- changing the shortcut to bar-only changed both runtime and configured options;
+- every successful step reported `pendingRestart: false`, no problem and two
+  verified interfaces.
+
+The sequence restored `US, Polish, Danish / both Alt` with Polish active. Final
+readback showed matching runtime/configured lists, no pending restart, no problem,
+an exact clean installed checkout, empty `hyprctl configerrors`, identical active
+and fallback data, mode `0600` on profile/data/loader files, no transaction record
+and no temporary state file. Redacted evidence is
+`work/live-acceptance/da9511df/immediate-acceptance.json`.
+
+**Current verdict: the immediate backend add/remove/default/shortcut contract and
+active-layout-removal safety pass live acceptance. Publication remains NO-GO**
+pending manual confirmation that the real popup refreshes its main and editor rows,
+plus the remaining bar-edge/scale, keyboard replacement, applicable IME,
+another-account lifecycle, private beta, CI and marketplace gates. No repository
+push, tag, release or marketplace submission occurred.
