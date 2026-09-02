@@ -868,7 +868,7 @@ compatibility path, physical typing/shortcut behavior, next-session promotion an
 profile restoration, popup interaction and four-edge/scale checks pass on the
 verified environment.** Publication remains **NO-GO** pending keyboard
 replacement with a different model, another-account clean lifecycle, private
-beta, executed CI and final public-repository/marketplace review.
+beta and final public-repository/marketplace review.
 
 The canonical public repository name was selected as
 `MadMatt341/omarchy-keyboard-settings`: it uses the actual GitHub owner and the
@@ -877,4 +877,28 @@ short, ecosystem-conventional `omarchy-` prefix. The permanent plugin ID remains
 verified private `MadMatt341/keyboard-settings-for-omarchy` repository was renamed
 to the canonical name. It remained private on `main`, the old Git URL redirected
 to commit `fabac74`, and this checkout's `origin` was updated to the canonical
-URL. Making the repository public and running hosted CI remain release actions.
+URL. Making the repository public remains a separate release action.
+
+GitHub Actions run
+[`33684749264`](https://github.com/MadMatt341/omarchy-keyboard-settings/actions/runs/33684749264)
+then passed every tracked release gate for documentation commit `18d413c` and
+release-input fingerprint
+`bec6b36d6eb45b580618ccafd4c88ce8b81c66064880687dcb9160a6ce999215`.
+The runtime implementation was unchanged from the live-tested candidate; the
+fingerprint change is from the canonical repository URL in `README.md` and the
+publication guide, while `VALIDATION.md` is intentionally excluded evidence.
+The clean checkout passed whitespace validation, Omarchy's plugin validator, 71
+Python/integration tests, all offline health budgets, 30 native checks with zero
+failures and the reproducible package build. Native search p95 was 36 ms, the
+refresh storm took 203 ms, RSS grew 176 KiB, file descriptors did not grow and no
+helper was orphaned. The health run measured 0.421% of one core for the
+five-minute-equivalent idle workload.
+
+The first CI attempt checked out successfully but could not start its first shell
+step because the temporary self-hosted runner lived under this checkout's
+space-containing path; no test ran in that attempt. The same commit was retried
+from a fresh space-free `/tmp` directory and passed. The repository-scoped runner
+was registered as ephemeral for one job, removed its own credentials and
+registration on completion, and the repository then reported zero registered
+runners. Both temporary runner directories and the downloaded archive were
+deleted.
