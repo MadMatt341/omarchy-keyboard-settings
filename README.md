@@ -58,7 +58,7 @@ without `--enable`, then use the plugin's reversible activation helper. Every
 helper command is a dry run unless `--apply` is present.
 
 ```sh
-omarchy plugin add https://github.com/madmatt/omarchy-keyboard-settings.git
+omarchy plugin add https://github.com/MadMatt341/omarchy-keyboard-settings.git
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
 ```
@@ -123,7 +123,7 @@ copy against its receipt before changing anything:
 python3 tools/plugin.py prepare-remove --keep-settings
 python3 tools/plugin.py prepare-remove --keep-settings --apply
 omarchy plugin remove madmatt.keyboard-settings
-omarchy plugin add https://github.com/madmatt/omarchy-keyboard-settings.git
+omarchy plugin add https://github.com/MadMatt341/omarchy-keyboard-settings.git
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
 ```
 

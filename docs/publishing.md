@@ -14,14 +14,14 @@ not sandboxed. See Omarchy's
 and [third-party installation guide](https://github.com/omacom/omarchy/blob/quattro/docs/omarchy-shell.md#installing-a-third-party-plugin).
 
 The primary route for this project is a root plugin in the personal public
-repository `madmatt/omarchy-keyboard-settings`. Git installation is required for
+repository `MadMatt341/omarchy-keyboard-settings`. Git installation is required for
 Omarchy's updater. Release archives are supplemental evidence and are not the
 supported installation route.
 
 The add command deliberately omits `--enable`:
 
 ```sh
-omarchy plugin add https://github.com/madmatt/omarchy-keyboard-settings.git
+omarchy plugin add https://github.com/MadMatt341/omarchy-keyboard-settings.git
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
 ```
 
@@ -134,7 +134,7 @@ security audit.
 | --- | --- |
 | Name | Keyboard Settings |
 | ID | `madmatt.keyboard-settings`, pending availability check |
-| Repository | `https://github.com/madmatt/omarchy-keyboard-settings` |
+| Repository | `https://github.com/MadMatt341/omarchy-keyboard-settings` |
 | Category | `Hardware`, pending current-schema check |
 | Tags | `bar`, `hyprland`, `quickshell` |
 | Preview | `preview.png` |

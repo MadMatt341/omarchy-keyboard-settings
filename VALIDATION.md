@@ -300,10 +300,11 @@ within an authorized live-testing task.
 
 - [x] After a login applies a saved edit, type Polish `ąćęłńóśźż` and uppercase equivalents and verify switching in both Alt press orders.
 - [x] Confirm an added/removed layout, changed default and shortcut take effect after login; verify the chosen first layout and resulting shortcut cycle order.
-- [ ] Confirm Escape closes from picker/editor/search/devices, reopening starts at the picker, and dismissal performs no keyboard or recovery action.
-- [ ] Check popup bounds, focus, Tab/arrows/Enter/Escape and text entry on every bar edge and with the user's scaling.
-- [ ] Check unplug/replug and replacement keyboards without applying stale state to a different device.
-- [ ] Check coexistence with the user's IME, if present. The picker does not manage IME engines.
+- [x] Confirm Escape closes from picker/editor/search, reopening starts at the picker, and dismissal performs no keyboard or recovery action. With one certain keyboard the devices page is not live-reachable; its Escape path remains covered by the native fixture.
+- [x] Check popup bounds on every bar edge at the user's scaling, with focus, Tab/arrows/Enter/Escape and text entry exercised on the top edge and dismissal rechecked on the other edges.
+- [x] Check unplug/replug without retaining stale interface-address state. The same physical keyboard re-enumerated with new low-level addresses, retained its certain grouped identity and current layout state, and passed physical typing plus both shortcut directions.
+- [ ] Check a genuinely different replacement keyboard without applying stale state from the prior device. No spare keyboard was available on the validation host; defer this to private beta.
+- [x] Check coexistence with the user's IME, if present. Fcitx 5 was running during popup text entry and live layout switching; its sole configured engine was `keyboard-us`, so composition-engine behavior was not applicable. The picker does not manage IME engines.
 
 ## Live deferred-save blocker and correction — 2026-09-01
 
@@ -785,3 +786,95 @@ passed **30 checks with 0 failures**. Multi-layout, sole-layout, search, removal
 and ordinary-save captures were inspected; editor height increased from 244 to
 259 px, search remained 379 px, search p95 was 33 ms, refresh storm was 204 ms,
 RSS growth was 8 KiB, file-descriptor growth was zero and no helper was orphaned.
+
+## Final single-layout live acceptance — 2026-09-02
+
+Exact source commit `fabac74d2ba3f1f134bf997c70bb4c24ee64b8bc` and
+release-input fingerprint
+`38c3a07bcd3a43ba9590776c263add0bb8b59df2fcf1900cf0f446e4c9457de5`
+were installed through Omarchy's Git-managed retain-settings removal, local Git
+add and activation flow. The installed checkout was clean at that exact commit,
+the fixed loader and saved profile were retained, a full shell restart answered
+its IPC ping, the replacement plugin was enabled, the stock keyboard widget was
+disabled and `hyprctl configerrors` was empty.
+
+The live baseline was `pl/intl, us/` with Polish International active and first,
+both Alt enabled, one certain physical keyboard group, matching runtime and
+configured rows, no pending restart and no problem. Through the real popup, the
+user removed active/default Polish International and left sole US. The operation
+trace recorded a separate survivor switch and save, followed by one committed
+readback from logical `pl/intl, us/` to logical `us/`. The user confirmed the
+compact in-place progress behavior, coherent final sole-layout presentation,
+ordinary typing and both Alt press orders. Quickshell retained PID `85227`, and
+neither the system nor user journal contained the prior bad-file-descriptor,
+status-255, segfault or core-dump signatures. The user then deliberately exercised
+add, default and switch actions before the promotion setup; those later actions
+accounted for a subsequent two-layout observation and were not stale popup state.
+
+The helper restaged sole US for the session-bound compatibility check. Verified
+pre-reboot state was one logical/configured `us/` row, physical `us/, us/`, active
+index zero, `compatibilityMode = duplicated-single-layout`, both Alt enabled, no
+pending restart, no problem, no transaction and no temporary state file. The
+Quickshell PID and clean Hyprland configuration remained unchanged, and no prior
+failure signature appeared.
+
+After a full `omarchy system reboot`, private hashes proved both the boot and
+Hyprland instance changed. Verified state was one logical, configured and physical
+`us/` row with compatibility mode cleared. The post-reboot active-data hash exactly
+matched the pre-reboot pending-data hash, and post-reboot active and pending data
+matched each other. The installed checkout remained clean at `fabac74`, shell IPC
+answered, `hyprctl configerrors` was empty, no transaction or temporary file
+remained and the new boot contained no prior failure signature.
+
+The original `pl/intl, us/` / both Alt profile was restored through a guarded live
+save and Polish International was selected on every verified typing interface.
+Final runtime, configured and physical rows match; Polish International is active
+at index zero; pending restart and compatibility mode are clear; there is no
+problem, transaction or temporary state file; and `settings.json` matches the
+private pre-test baseline byte for byte. Redacted and private evidence is under
+`work/live-acceptance/38c3a07/`.
+
+At the user's single-monitor 1.0 scale, the top-edge popup passed picker, editor
+and search dismissal, reopen reset, ordinary search text entry and keyboard-only
+Tab/arrow/Enter switching from Polish to US and back. The bar was then moved with
+`omarchy bar position` through bottom, left and right. On every edge, the user
+confirmed that picker, editor and search opened on the inward side, remained
+fully on-screen without clipping or overlap, and closed with Escape. Quickshell
+kept PID `1066` throughout the edge changes. Returning the bar to top produced a
+shell configuration semantically identical to the pre-test baseline; keyboard
+settings remained byte-identical, shell IPC answered, `hyprctl configerrors` was
+empty and the current boot contained no prior failure signature.
+
+Fcitx 5 was running during the successful popup search typing and Polish/US
+switching checks. Its `Default` group contained only the `keyboard-us` engine;
+the plugin left that engine selection alone. This passes coexistence for the
+installed configuration, while composition-engine behavior is not applicable on
+this account because no such engine is configured.
+
+The user then disconnected and reconnected the USB hub carrying the physical
+keyboard. Kernel events confirmed removal and fresh enumeration with new input
+addresses. The Apex 150 returned as the same certain logical group with the same
+two typing interfaces; the mouse's keyboard-like HID interface remained excluded.
+The grouped device ID, `pl/intl, us/` logical/configured/physical rows, active
+Polish index and both-Alt shortcut matched the pre-disconnect evidence. The user
+again passed Polish character entry and both shortcut directions. There was no
+pending restart, compatibility mode, problem or Hyprland configuration error, and
+Quickshell retained PID `1066`. A genuinely different replacement keyboard is
+still untested because no spare was available, so that check is explicitly
+deferred to private beta.
+
+**Current verdict: the release-blocking live `2 distinct -> 2 identical -> 1`
+compatibility path, physical typing/shortcut behavior, next-session promotion and
+profile restoration, popup interaction and four-edge/scale checks pass on the
+verified environment.** Publication remains **NO-GO** pending keyboard
+replacement with a different model, another-account clean lifecycle, private
+beta, executed CI and final public-repository/marketplace review.
+
+The canonical public repository name was selected as
+`MadMatt341/omarchy-keyboard-settings`: it uses the actual GitHub owner and the
+short, ecosystem-conventional `omarchy-` prefix. The permanent plugin ID remains
+`madmatt.keyboard-settings`. After GitHub authentication was refreshed, the
+verified private `MadMatt341/keyboard-settings-for-omarchy` repository was renamed
+to the canonical name. It remained private on `main`, the old Git URL redirected
+to commit `fabac74`, and this checkout's `origin` was updated to the canonical
+URL. Making the repository public and running hosted CI remain release actions.
