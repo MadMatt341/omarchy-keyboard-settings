@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please do not open a public issue for a suspected vulnerability. Use GitHub's
-[private vulnerability reporting](https://github.com/madmatt/omarchy-keyboard-settings/security/advisories/new)
+[private vulnerability reporting](https://github.com/MadMatt341/omarchy-keyboard-settings/security/advisories/new)
 for the repository. Include the affected version or commit, the observed impact,
 and minimal reproduction steps. Remove usernames, home paths, keyboard device
 names and configuration contents before attaching logs.

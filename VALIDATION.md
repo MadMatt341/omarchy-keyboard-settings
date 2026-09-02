@@ -902,3 +902,23 @@ was registered as ephemeral for one job, removed its own credentials and
 registration on completion, and the repository then reported zero registered
 runners. Both temporary runner directories and the downloaded archive were
 deleted.
+
+The final pre-publication privacy sweep covered all 21 commits and 189 unique Git
+blobs. File-name-only scans found no absolute home path, private-key marker,
+GitHub/AWS/Slack token signature or JWT-like value in tracked history or the
+current tree. The sole commit-author email remains the address the owner already
+approved for publication. Two validation-only commits name the tested keyboard
+model; they contain no serial number, device address, raw event or typed text and
+were retained as low-risk environment evidence rather than rewriting private
+history. The 336×272 root preview was inspected at original resolution: it shows
+only fixture English/Polish layout controls, and its PNG metadata contains no
+author, filesystem path, host or device field.
+
+This sweep also found and corrected the last stale live URL: `SECURITY.md` had
+used the unrelated `madmatt` GitHub account instead of the canonical
+`MadMatt341` owner for private vulnerability reports. No other stale install or
+support URL remains in the current tree. That documentation-only fix produces
+release-input fingerprint
+`d3e97b6c30ac2be92efcdf42baa77d5045f1acfa1b6c70227f83280143712a22`;
+runtime source is unchanged. The final post-beta CI run should use this or any
+later accepted documentation fingerprint.
