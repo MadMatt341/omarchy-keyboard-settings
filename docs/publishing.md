@@ -82,19 +82,15 @@ stay under ignored `work/`.
 
 ## Remaining release gates
 
-- Complete the authorized live acceptance list: clean login application, physical
-  Polish AltGr characters, both shortcut directions, default ordering, layout
-  addition/removal, Escape/reopen, every bar edge, scaling, focus, keyboard
-  replacement and IME coexistence where applicable.
 - Exercise fresh Git add/activate/update/prepare-remove/remove on another account
-  or clean Omarchy system. Confirm copied-development migration with the actual
-  installed receipt.
-- Run a private beta, triage its findings and repeat all offline and live gates on
-  one final candidate fingerprint.
-- Audit the entire Git history and the root preview for private material before
-  the first push. A clean current tree does not prove clean history.
-- Confirm `madmatt.keyboard-settings` is available in the marketplace and recheck
-  the current submission schema and category values.
+  or clean Omarchy system and confirm copied-development migration with the actual
+  installed receipt. This is an explicit public-beta feedback target rather than
+  a blocker for the first prerelease.
+- Check replacement with a genuinely different keyboard model. Same-keyboard
+  USB disconnect/reconnect passed; no spare model was available, so the public
+  beta is the broader hardware cohort.
+- Triage beta findings and repeat the affected offline and live gates before a
+  stable `v0.1.0` release.
 
 Compatibility remains limited to the versions recorded in `VALIDATION.md`. Older
 Waybar-era Omarchy is outside this plugin's design. Missing Quickshell components,
@@ -104,19 +100,21 @@ claim.
 
 ## Public beta sequence
 
-After the release owner authorizes publication:
+The release owner selected the marketplace beta as the broader feedback cohort:
 
-1. Create the public GitHub repository named `omarchy-keyboard-settings`, enable
-   private vulnerability reporting, and push the exact reviewed candidate.
-2. Confirm the compatible CI runner executes the tracked workflow successfully.
-3. Share the repository privately with beta testers and record the tested commit,
-   environment and findings without collecting typed text or raw device output.
-4. Fix release-required findings and repeat the frozen fingerprint, automated
-   gates, clean-system lifecycle and live acceptance.
-5. Set the date in `CHANGELOG.md`, tag the exact accepted commit as `v0.1.0`, build
-   its reproducible archive/checksum, and publish it as a clearly labelled beta.
-6. Submit that exact commit to the marketplace only after a separate owner review
-   and explicit approval.
+1. Commit and push the reviewed `0.1.0-beta.1` candidate while the repository is
+   private, then run every tracked gate on that exact commit with a compatible
+   Omarchy runner.
+2. Make the repository public, enable private vulnerability reporting, and verify
+   its install, support, license and preview material without authentication.
+3. Tag that exact accepted commit as `v0.1.0-beta.1`, rebuild its reproducible
+   archive and checksum, and publish a GitHub prerelease with the open beta checks
+   stated plainly.
+4. Present the exact marketplace issue title and six-section body to the owner.
+   Create the public submission only after the owner confirms ownership, all five
+   checklist statements and the final text.
+5. Triage public feedback without collecting typed text or raw device output;
+   repeat affected gates and reserve `v0.1.0` for a later stable promotion.
 
 The marketplace is the discovery and review layer; a core Omarchy merge or AUR
 package is not required. Current guidance asks for a public repository, root
@@ -133,13 +131,13 @@ security audit.
 | Field | Value |
 | --- | --- |
 | Name | Keyboard Settings |
-| ID | `madmatt.keyboard-settings`, pending availability check |
+| ID | `madmatt.keyboard-settings`; absent from the active and retired registry when checked on 2026-09-02 |
 | Repository | `https://github.com/MadMatt341/omarchy-keyboard-settings` |
-| Category | `Hardware`, pending current-schema check |
+| Category | `Hardware` |
 | Tags | `bar`, `hyprland`, `quickshell` |
 | Preview | `preview.png` |
 | Summary | Native keyboard layout and variant picker with validated, immediate editing. |
-| Maintainer notes | Independent plugin; guarded live settings with runtime rollback, explicit configuration ownership, no typed-text collection, tested-version scope and reversible preparation for removal. |
+| Maintainer notes | Public beta; guarded live settings with runtime rollback, explicit configuration ownership, no typed-text collection, tested-version scope and reversible preparation for removal. Feedback is especially welcome for clean-account installation and genuinely different replacement keyboards. |
 
 The marketplace may classify the lifecycle and legacy installer tools as an
 installer capability requiring maintainer review. Keep their behavior explicit;

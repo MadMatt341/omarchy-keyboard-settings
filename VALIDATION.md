@@ -1,4 +1,4 @@
-# Build and live installation validation — 0.1.0
+# Build and live installation validation — 0.1.0-beta.1
 
 Validated on 2026-08-31. Installed locally with the user's authorization. This is still a development build, not a production-certified release.
 
@@ -922,3 +922,38 @@ release-input fingerprint
 `d3e97b6c30ac2be92efcdf42baa77d5045f1acfa1b6c70227f83280143712a22`;
 runtime source is unchanged. The final post-beta CI run should use this or any
 later accepted documentation fingerprint.
+
+## Public beta launch candidate — 2026-09-02
+
+The owner chose a marketplace public beta as the broader feedback cohort instead
+of requiring private access to a spare keyboard or clean account. The genuinely
+different replacement-keyboard check and fresh another-account Git lifecycle are
+therefore explicit beta feedback targets, not claims of completed compatibility.
+Stable `v0.1.0` remains reserved for a later promotion after beta findings are
+triaged.
+
+The manifest and changelog identify the prerelease as `0.1.0-beta.1`. README and
+support guidance link to a structured beta feedback form that requests tested
+versions, bar edge and scale, observed behavior and optional redacted diagnostics.
+It explicitly refuses raw key events, typed text, usernames or home paths, device
+serial numbers, raw configuration, `hyprctl devices` output and helper `status`
+output. The form is repository metadata and is not included in the runtime plugin
+archive.
+
+Local gates passed under release-input fingerprint
+`dbdfc252c9090feb78563045fae118bcf483678cf022fbc40c72f72504d1606a`:
+
+| Gate | Result |
+| --- | --- |
+| Python backend, lifecycle and packaging | **71 passed**. |
+| Offline health | All budgets passed; catalog cold p95 92.9 ms, warm p95 80.0 ms, one-layout save p95 60.6 ms, four-layout save p95 67.0 ms, search p95 0.056 ms and five-minute-equivalent idle cost 0.362% of one core. |
+| Native UI | **30 passed, 0 failed**; search p95 40 ms, refresh storm 255 ms, RSS growth 32 KiB, zero file-descriptor growth and no orphan helper. |
+| Distribution | `keyboard-settings-0.1.0-beta.1.tar.gz` passed Omarchy validation. It contains the expected 22 files beneath the plugin directory, no repository issue template, and has SHA-256 `65bbacab26907e2fdd7abe17ad97dab82a01e90ced76007e122b9893d8409fa6`. |
+| Metadata | Manifest JSON and feedback-form YAML parse successfully; `git diff --check` passed. |
+
+The repository must remain private until the exact committed beta candidate also
+passes the tracked compatible-runner workflow. Public visibility, vulnerability
+reporting, tag, prerelease and marketplace submission are subsequent launch
+actions. Marketplace submission still requires the owner to review and explicitly
+confirm the exact public issue title, body, ownership statement and all checklist
+items.

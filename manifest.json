@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "madmatt.keyboard-settings",
   "name": "Keyboard Settings",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "author": "madmatt and contributors",
   "license": "MIT",
   "description": "Native keyboard layout and variant picker with validated, immediate editing",

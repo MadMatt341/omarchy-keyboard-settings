@@ -5,6 +5,12 @@ environment and open compatibility limits. This plugin is independent of Omarchy
 report plugin behavior in this repository rather than Omarchy's tracker unless a
 maintainer confirms an upstream issue.
 
+For public-beta findings, use the repository's
+[beta feedback form](https://github.com/MadMatt341/omarchy-keyboard-settings/issues/new?template=beta-feedback.yml).
+The most useful remaining coverage is a fresh add/activate/update/remove lifecycle
+on another account or clean Omarchy system and replacement with a genuinely
+different physical keyboard.
+
 Run the read-only redacted diagnostic from the Git checkout:
 
 ```sh
@@ -20,7 +26,8 @@ Do not post raw `settings.json`, `activity.json`, `transaction.json`,
 `active-v1.conf`, `pending-v1.conf`, generated Lua, `hyprctl devices` output or
 helper `status` output. Those may reveal keyboard device names, configured
 layouts, paths or other local configuration. The plugin never records typed text,
-and a useful support report should not contain it.
+and a useful support report should not contain it. Remove usernames, home paths,
+device serial numbers and unrelated configuration from anything you attach.
 
 Common recovery paths:
 

@@ -6,10 +6,10 @@ independent plugin and is not an official Omarchy project.
 
 ![Keyboard Settings editor](preview.png)
 
-The planned first release is a **public beta**. The current `0.1.0` source is a
-pre-release candidate: automated, login and physical-typing checks pass on the
-recorded Omarchy environment, while the remaining live and clean-system acceptance
-items are listed in [VALIDATION.md](VALIDATION.md).
+The first release is a **public beta**. `0.1.0-beta.1` has passed the automated,
+login and physical-typing checks recorded in [VALIDATION.md](VALIDATION.md).
+Compatibility is intentionally limited to the tested environment while beta
+feedback broadens coverage to clean accounts and different keyboard models.
 
 ## What it does
 
@@ -140,6 +140,20 @@ output. Use `python3 tools/diagnostics.py` for a redacted report.
 Plugins run with your user permissions and are not sandboxed. Review the source
 and the update diff. Security reports should use the private channel in
 [SECURITY.md](SECURITY.md).
+
+## Beta feedback
+
+Please report beta findings through the repository's
+[beta feedback form](https://github.com/MadMatt341/omarchy-keyboard-settings/issues/new?template=beta-feedback.yml).
+Feedback is especially useful for a fresh add/activate/update/remove lifecycle,
+a genuinely different replacement keyboard, physical typing and shortcut
+directions, or popup behavior at a bar edge and display scale not listed in
+[VALIDATION.md](VALIDATION.md).
+
+Include the Omarchy, Hyprland and Quickshell versions, the bar edge and display
+scale when relevant, and the output of `python3 tools/diagnostics.py`. Do not post
+raw key events, typed text, usernames or home paths, device serial numbers, raw
+configuration files, `hyprctl devices` output or helper `status` output.
 
 ## Development and release checks
 

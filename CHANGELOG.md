@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — public beta candidate
+## 0.1.0-beta.1 — 2026-09-02
 
 - Native Quickshell layout picker, grouped editor preferences, guided
   installed-XKB search and device picker.
@@ -22,6 +22,5 @@
 - Keyboard-only navigation, reduced-motion support and fixture-native UI checks.
 - Git-managed activation, updates and reversible preparation for removal.
 - Reproducible supplemental archive and offline release-health gates.
-
-The release date and tag remain unset until live acceptance and private beta are
-complete.
+- Initial public beta feedback path for clean-account lifecycle checks and
+  genuinely different replacement keyboards.
