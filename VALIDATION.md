@@ -957,3 +957,15 @@ reporting, tag, prerelease and marketplace submission are subsequent launch
 actions. Marketplace submission still requires the owner to review and explicitly
 confirm the exact public issue title, body, ownership statement and all checklist
 items.
+
+GitHub Actions run
+[`33687348864`](https://github.com/MadMatt341/omarchy-keyboard-settings/actions/runs/33687348864)
+passed every tracked gate for exact commit
+`9afa6ec14a64cfef60fb2c55215918ec5f683ab0` and the unchanged release-input
+fingerprint above. The clean Git checkout passed whitespace and Omarchy plugin
+validation, all 71 Python/integration tests, every offline health budget, all 30
+native checks with zero failures, resource/orphan checks and the reproducible
+`0.1.0-beta.1` package build. Native RSS grew 4 KiB with zero file-descriptor
+growth. The checksum-verified official Actions runner 2.337.0 was registered to
+this repository as ephemeral for one job and removed its credentials and
+registration after success.
