@@ -658,3 +658,130 @@ release-blocking.
 **Current verdict: NO-GO for publication and unresolved for live `2 → 1`
 removal.** Parked for a design that avoids the unsafe live reload while preserving
 the sole-layout invariant. No further live keyboard mutation was performed.
+
+## Ranked layout search — 2026-09-02
+
+The add-layout search now treats punctuation as term boundaries, matches every
+query term at a token prefix across layout and variant metadata, and ranks exact
+layout/pair matches ahead of broader results. Standard layouts sort before
+variants at equal relevance and the empty-query list is alphabetical. This makes
+`English US`, `US`, reordered terms and `US intl` resolve to the intended US
+standard or international pair without depending on raw XKB registry order.
+
+This is an offline source check; it has not been installed or exercised in the
+live shell. The native harness passed **18 tests with 0 failures**, including
+real installed-catalog relevance, selected-pair omission and Enter activation.
+Full 753-pair search measured 30 ms p95 against a 50 ms budget. The revised search
+page rendered at 379 px, visual inspection found no clipping, resource checks
+reported no file-descriptor growth or orphan helper, and `git diff --check`
+passed.
+
+## Logical/physical separation and confirmed operations — 2026-09-02
+
+The source candidate now keeps a requested sole layout as one logical saved row
+while encoding two identical physical XKB groups in `active-v1.conf` for the
+remainder of a compositor session that previously had multiple groups. The true
+single row remains in `settings.json` and `pending-v1.conf`; the existing fixed
+loader promotes it in the next compositor session. Recognition requires the
+current session identifier, fixed loader, saved profile, active and pending bytes,
+and every live typing interface to match the complete owned encoding. Arbitrary
+duplicates, stale prior-session data and an invalid physical active index are not
+reported as a healthy logical single layout.
+
+The QML backend now keeps each action busy through its mandatory status readback,
+preserves the last confirmed snapshot after a failed query, gates every mutation
+on fresh state, and emits one terminal result tied to the request ID. Staged active
+removal retains its original revision and confirmed survivor precondition. Failed
+switches, failed readbacks, changed revisions and unrelated completions cannot
+advance or permanently lock the removal. The popup shows the operation in progress
+while confirmed membership remains unchanged underneath it.
+
+Offline validation passed **70 Python tests**, including an environment-independent
+run with `HYPRLAND_INSTANCE_SIGNATURE` removed, and **25 native UI tests**. The
+native run covered asynchronous action/readback phases, stale-state gating,
+failure cleanup, request identity, revision races, the logical-one/physical-two
+view, confirmed picker switching and ranked search. The final run reported 33 ms
+search p95, 254 ms refresh-storm time, 104 KiB RSS growth, zero file-descriptor
+growth and no orphan helper. The picker, editor, sole-layout editor and search
+captures were inspected without clipping or misplaced controls. A fresh
+`keyboard-settings-0.1.0.tar.gz`, the package validator and `git diff --check`
+passed. Nothing was installed and no live keyboard setting was changed.
+
+**Current verdict remains NO-GO for publication.** The decisive next check is a
+real-popup `2 distinct -> 2 identical` removal while monitoring Hyprland and
+Quickshell for the prior bad-file-descriptor/client-disconnect signature, followed
+by verification that the logical single layout behaves correctly and promotes to
+a true single group in a new compositor session. Physical typing, the identical-
+group shortcut behavior, multiple-interface state and rollback should be checked
+before this compatibility path is accepted.
+
+## Active-default presentation follow-up — 2026-09-02
+
+The first live candidate passed search and the previously requested add, remove,
+default and shortcut cases. A manual `Polish, US` check with Polish both active
+and first/login-default exposed a transient popup mismatch: the survivor switch
+was visible before the compound removal appeared complete, and the final
+one-layout editor removed all visible default-at-login context.
+
+The preserved live transaction proves that the helper switched both interfaces
+to US and committed the intended logical `US` / physical `US, US` state. The
+profile, active and pending data were consistent, no transaction remained, the
+old bad-file-descriptor signature did not recur, and Quickshell did not restart.
+The persisted backend state was therefore not the source of the mismatch.
+
+The popup now treats staged active removal as one atomic interaction. It
+holds the last coherent runtime/configured snapshot through survivor switching,
+save and readback; keeps mutations locked; and publishes the result only when
+both ordered logical lists, the active survivor and pending state match the
+request. A divergent terminal readback receives one additional status query.
+Repeated divergence retains the prior coherent view, reports the unconfirmed
+result and remains mutation-locked until a later ordinary refresh confirms it.
+The ordinary switch, save and confirmation phases are intentionally not exposed
+as popup text or accessibility announcements. Local operation traces retain the
+request ID, action phase/outcome and XKB layout IDs, but no device names or raw
+requests.
+
+The sole logical row now has a static, non-focusable `DEFAULT AT LOGIN` value
+ending in `— only layout`. This preserves the meaning without presenting a
+one-option dropdown. Successful removal focuses **Add layout**; failed staged
+actions restore the applicable remove focus, and repeated inconsistent readback
+focuses the still-available Back action.
+
+| Follow-up gate | Result |
+| --- | --- |
+| Python backend/integration | **71 passed**, including exact `Polish, US` with Polish active and default, survivor switching under the unchanged revision, and an atomic logical `US` result with physical `US, US`. |
+| Native UI | **29 passed, 0 failed**. Coverage injects both switch-time and save-time runtime/configured splits, proves the held presentation never diverges or unlocks early, confirms one extra readback and fail-closed behavior, and checks focus and accessibility. |
+| Visual and resource checks | Multi-layout and sole-layout editor captures were inspected without clipping. Search p95 was 31 ms; refresh storm was 204 ms; RSS delta was 8 KiB; file-descriptor growth was zero and no helper was orphaned. |
+| Performance | Catalog cold p95 102.5 ms, warm p95 72.7 ms, one-layout save p95 44.1 ms, four-layout save p95 64.2 ms, search p95 0.057 ms and five-minute-equivalent idle cost 0.305% of one core. |
+| Distribution | A fresh `keyboard-settings-0.1.0.tar.gz` passed packaging and Omarchy validation; `git diff --check` passed. |
+
+The active-removal candidate was installed through a Git-managed live update and
+full Omarchy shell restart. The user then confirmed the active/default removal,
+search and preceding add, remove, default and shortcut cases in the real popup.
+The follow-up that keeps ordinary phase choreography under the hood reran all
+**29 native checks with 0 failures**; the affected editor captures were inspected
+without clipping or a status-row gap, search p95 was 45 ms, RSS growth was 72 KiB,
+file-descriptor growth was zero, no helper was orphaned, and a fresh package
+passed Omarchy validation. Runtime deployment continues to use the Git-managed
+update plus a full shell restart.
+
+A responsiveness follow-up adds immediate, non-textual feedback without
+publishing intermediate keyboard state. Active and ordinary removal replace only
+the initiating × with the native compact activity glyph; other saves use a fixed
+trailing header slot. The glyph remains static with reduced motion, Back,
+scrolling and Escape remain available, and mutating controls stay locked. The
+latest native rerun passed **29 checks with 0 failures**; both in-progress
+captures were inspected with stable titles, rows and popup height, search p95 was
+33 ms, refresh storm was 204 ms, RSS growth was 16 KiB, file-descriptor growth
+was zero and no helper was orphaned. Publication remains **NO-GO** until the
+other open acceptance items pass.
+
+The editor hierarchy follow-up places one native separator between layout
+management and preferences, uses the native panel gap between default-at-login
+and switching controls, and moves search examples above the text field. The
+activity indicator now uses a drawn arc in a permanently reserved trailing slot,
+so neither animation nor visibility changes reflow header text. The native suite
+passed **30 checks with 0 failures**. Multi-layout, sole-layout, search, removal
+and ordinary-save captures were inspected; editor height increased from 244 to
+259 px, search remained 379 px, search p95 was 33 ms, refresh storm was 204 ms,
+RSS growth was 8 KiB, file-descriptor growth was zero and no helper was orphaned.

@@ -74,6 +74,10 @@ class KeymapTests(unittest.TestCase):
         for bad in [[], ['us/'] * 2, ['unknown/'], ['us/'] * 5, [{}]]:
             with self.assertRaises(SettingsError): self.catalog.resolve(bad)
 
+    def test_duplicate_logical_selection_remains_rejected(self):
+        with self.assertRaisesRegex(SettingsError, 'already selected'):
+            self.catalog.resolve(['pl/', 'pl/'])
+
 
 class CatalogCacheTests(unittest.TestCase):
     def registry(self, root, description="Test layout"):
@@ -285,6 +289,10 @@ assert(#devices == 1 and devices[1].kb_layout == "us,pl")
 
 class TransactionTests(unittest.TestCase):
     def setUp(self):
+        self.session_environment = patch.dict(
+            os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'test-session'})
+        self.session_environment.start()
+        self.addCleanup(self.session_environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
@@ -346,6 +354,121 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(status['shortcut'], 'bar')
         self.assertFalse(status['pendingRestart'])
 
+    def test_single_logical_layout_uses_owned_two_group_runtime_compatibility(self):
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'test-session'}):
+            status = self.session.status()
+            self.session.save(['us/'], 'both-alt', status['revision'])
+            status = self.session.status()
+
+        active = parse_deferred(self.paths.active.read_bytes())
+        pending = parse_deferred(self.paths.pending.read_bytes())
+        saved = json.loads(self.paths.profile.read_text())
+        self.assertEqual({target['layout'] for target in active}, {'us,us'})
+        self.assertEqual({target['variant'] for target in active}, {','})
+        self.assertEqual({target['layout'] for target in pending}, {'us'})
+        self.assertEqual({target['variant'] for target in pending}, {''})
+        self.assertNotEqual(self.paths.active.read_bytes(), self.paths.pending.read_bytes())
+        self.assertEqual({target['layout'] for target in saved['profiles'][status['device']]}, {'us'})
+        self.assertEqual([row['id'] for row in status['layouts']], ['us/'])
+        self.assertEqual([row['id'] for row in status['configuredLayouts']], ['us/'])
+        self.assertEqual([row['id'] for row in status['physicalLayouts']], ['us/', 'us/'])
+        self.assertEqual(status['compatibilityMode'], 'duplicated-single-layout')
+        self.assertEqual(status['active'], 0)
+        self.assertEqual([row['id'] for row in status['activeLayouts']], ['us/'])
+        self.assertFalse(status['pendingRestart'])
+        self.assertTrue(all(device['layout'] == 'us,us' and device['active_layout_index'] == 0
+                            for device in self.hypr.items[:2]))
+
+        self.hypr.items[0]['active_layout_index'] = 0
+        self.hypr.items[1]['active_layout_index'] = 1
+        status = self.session.status()
+        self.assertEqual(status['active'], 0)
+        self.assertEqual([row['id'] for row in status['activeLayouts']], ['us/'])
+        self.assertEqual(status['problem'], '')
+
+        self.hypr.items[1]['active_layout_index'] = -1
+        status = self.session.status()
+        self.assertEqual(status['active'], -1)
+        self.assertEqual(status['activeLayouts'], [])
+        self.assertIn('different or unknown layouts', status['problem'])
+
+    def test_non_active_removal_keeps_two_physical_groups_without_pre_switch(self):
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            status = self.session.status()
+            self.hypr.calls.clear()
+            self.session.save(['pl/'], 'both-alt', status['revision'])
+        self.assertEqual(self.hypr.calls[0], ('reload', ''))
+        self.assertTrue(all(device['layout'] == 'pl,pl' and device['active_layout_index'] == 0
+                            for device in self.hypr.items[:2]))
+        self.assertEqual({target['layout'] for target in parse_deferred(self.paths.pending.read_bytes())}, {'pl'})
+
+    def test_compatibility_mode_can_expand_to_distinct_layouts(self):
+        status = self.session.status()
+        self.session.save(['us/'], 'both-alt', status['revision'])
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        status = self.session.status()
+        self.session.save(['us/', 'pl/'], 'both-alt', status['revision'])
+        status = self.session.status()
+        self.assertEqual(self.paths.active.read_bytes(), self.paths.pending.read_bytes())
+        self.assertEqual([row['id'] for row in status['layouts']], ['us/', 'pl/'])
+        self.assertEqual([row['id'] for row in status['physicalLayouts']], ['us/', 'pl/'])
+        self.assertEqual(status['compatibilityMode'], '')
+        self.assertEqual(status['layouts'][status['active']]['id'], 'us/')
+        self.assertTrue(all(device['layout'] == 'us,pl' and device['active_layout_index'] == 0
+                            for device in self.hypr.items[:2]))
+
+    def test_single_layout_compatibility_promotes_true_one_next_session(self):
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            status = self.session.status()
+            self.session.save(['us/'], 'both-alt', status['revision'])
+        runner = self.paths.root / 'next-session.lua'
+        runner.write_text('''
+local devices = {}
+hl = { device = function(spec) table.insert(devices, spec) end }
+dofile(arg[1])
+assert(#devices == 2)
+assert(devices[1].kb_layout == "us" and devices[2].kb_layout == "us")
+''')
+        env = dict(os.environ, XDG_STATE_HOME=str(self.paths.state),
+                   HYPRLAND_INSTANCE_SIGNATURE='session-b')
+        subprocess.run(['lua', str(runner), str(self.paths.override)], check=True, env=env)
+        self.assertEqual(self.paths.active.read_bytes(), self.paths.pending.read_bytes())
+        self.assertEqual({target['layout'] for target in parse_deferred(self.paths.active.read_bytes())}, {'us'})
+
+    def test_unowned_duplicate_runtime_is_not_hidden_as_one_layout(self):
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            status = self.session.status()
+            self.session.save(['us/'], 'both-alt', status['revision'])
+        atomic(self.paths.pending, self.paths.active.read_bytes())
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            status = self.session.status()
+        self.assertEqual([row['id'] for row in status['layouts']], ['us/', 'us/'])
+        self.assertEqual(status['compatibilityMode'], '')
+        self.assertTrue(status['pendingRestart'])
+
+    def test_previous_session_compatibility_is_not_hidden_if_promotion_did_not_run(self):
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            status = self.session.status()
+            self.session.save(['us/'], 'both-alt', status['revision'])
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-b'}):
+            status = self.session.status()
+        self.assertEqual([row['id'] for row in status['layouts']], ['us/', 'us/'])
+        self.assertEqual(status['compatibilityMode'], '')
+        self.assertTrue(status['pendingRestart'])
+
+    def test_single_layout_compatibility_requires_a_session_identifier(self):
+        status = self.session.status()
+        before = {path: self.session.file_blob(path) for path in
+                  (self.paths.profile, self.paths.active, self.paths.pending)}
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': ''}):
+            with self.assertRaisesRegex(SettingsError, 'session could not be identified'):
+                self.session.save(['us/'], 'both-alt', status['revision'])
+        self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
+        self.assertEqual(self.hypr.calls, [])
+
     def test_removing_the_active_layout_switches_to_a_survivor_first(self):
         for device in self.hypr.items[:2]:
             device['active_layout_index'] = 1
@@ -367,8 +490,29 @@ class TransactionTests(unittest.TestCase):
 
         self.assertEqual(self.hypr.calls[0], ('reload', ''))
         self.assertNotIn(('switch', 'typing-keyboard'), self.hypr.calls[:1])
-        self.assertTrue(all(device['layout'] == 'us' and device['active_layout_index'] == 0
+        self.assertTrue(all(device['layout'] == 'us,us' and device['active_layout_index'] == 0
                             for device in self.hypr.items[:2]))
+
+    def test_active_default_removal_publishes_one_logical_snapshot(self):
+        self.save(['pl/', 'us/'])
+        status = self.session.status()
+        self.session.switch(0, status['revision'])
+        before = self.session.status()
+        self.assertEqual(before['layouts'][before['active']]['id'], 'pl/')
+
+        self.session.switch(1, before['revision'])
+        switched = self.session.status()
+        self.assertEqual(switched['revision'], before['revision'])
+        self.assertEqual(switched['layouts'][switched['active']]['id'], 'us/')
+        self.session.save(['us/'], 'both-alt', before['revision'], expected_active_id='us/')
+
+        committed = self.session.status()
+        self.assertEqual([row['id'] for row in committed['layouts']], ['us/'])
+        self.assertEqual([row['id'] for row in committed['configuredLayouts']], ['us/'])
+        self.assertEqual([row['id'] for row in committed['physicalLayouts']], ['us/', 'us/'])
+        self.assertEqual(committed['compatibilityMode'], 'duplicated-single-layout')
+        self.assertEqual(committed['active'], 0)
+        self.assertFalse(committed['pendingRestart'])
 
     def test_reordering_preserves_the_active_layout_identity(self):
         for device in self.hypr.items[:2]:
@@ -394,6 +538,17 @@ class TransactionTests(unittest.TestCase):
         self.input.write_text('-- another edit\n')
         with self.assertRaisesRegex(SettingsError, 'setup changed'):
             self.session.save(['us/'], 'bar', revision)
+        self.assertEqual(self.hypr.calls, [])
+
+    def test_expected_logical_active_layout_rejects_a_switch_race(self):
+        status = self.session.status()
+        before = {path: self.session.file_blob(path) for path in
+                  (self.paths.profile, self.paths.active, self.paths.pending)}
+        for device in self.hypr.items[:2]:
+            device['active_layout_index'] = 1
+        with self.assertRaisesRegex(SettingsError, 'active layout changed'):
+            self.session.save(['us/'], 'bar', status['revision'], expected_active_id='us/')
+        self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
         self.assertEqual(self.hypr.calls, [])
 
     def test_interrupted_file_write_recovers_without_compositor_calls(self):
@@ -436,6 +591,18 @@ class TransactionTests(unittest.TestCase):
         self.hypr.fail_reload = True
         with self.assertRaisesRegex(SettingsError, 'previous setup was restored'):
             self.save(['us/', 'de/'])
+        self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
+        self.assertEqual(self.hypr.items, previous)
+        self.assertFalse(self.paths.transaction.exists())
+
+    def test_single_layout_compatibility_reload_failure_restores_distinct_files(self):
+        before = {path: self.session.file_blob(path) for path in
+                  (self.paths.profile, self.paths.active, self.paths.pending)}
+        previous = copy.deepcopy(self.hypr.items)
+        self.hypr.fail_reload = True
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}):
+            with self.assertRaisesRegex(SettingsError, 'previous setup was restored'):
+                self.save(['us/'])
         self.assertEqual({path: self.session.file_blob(path) for path in before}, before)
         self.assertEqual(self.hypr.items, previous)
         self.assertFalse(self.paths.transaction.exists())

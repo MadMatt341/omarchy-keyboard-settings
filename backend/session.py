@@ -17,12 +17,14 @@ import tempfile
 import time
 
 from .catalog import Catalog, SettingsError
-from .deferred import LOADER, MARKER, parse as parse_deferred, render as render_deferred
+from .deferred import (LOADER, MARKER, parse as parse_deferred,
+                       render as render_deferred, saved_session)
 from .devices import metadata, resolve, pick, active_index
 from .keymap import validate
 
 FIELDS = ("rules", "model", "layout", "variant", "options")
 OWNED = ("layout", "variant", "options")
+SINGLE_LAYOUT_COMPATIBILITY = "duplicated-single-layout"
 
 
 def encoded(data):
@@ -43,15 +45,21 @@ def config_of(device):
     return {key: device.get(key, "") for key in FIELDS}
 
 
+def layout_pairs(config):
+    layouts = config.get("layout", "").split(",")
+    raw = config.get("variant", "")
+    variants = raw.split(",") if raw else [""] * len(layouts)
+    if len(variants) == 1 and len(layouts) > 1:
+        variants *= len(layouts)
+    if len(variants) != len(layouts):
+        return None
+    return list(zip(layouts, variants))
+
+
 def equivalent(a, b):
     # Hyprland normalizes an all-empty variant list to an empty string.
-    def normal(c):
-        count = len(c.get("layout", "").split(","))
-        variants = c.get("variant", "").split(",")
-        if len(variants) == 1:
-            variants *= count
-        return {"layout": c.get("layout", ""), "variant": variants, "options": c.get("options", "")}
-    return normal(a) == normal(b)
+    return (layout_pairs(a) == layout_pairs(b)
+            and a.get("options", "") == b.get("options", ""))
 
 
 def atomic(path, content):
@@ -189,6 +197,47 @@ class Session:
         self.records = records
         self.catalog = Catalog(cache=self.paths.cache / "omarchy/keyboard-settings/catalog-v1.json")
 
+    def single_layout_compatibility(self, group, saved):
+        """Recognize only the complete plugin-owned logical-one/physical-two state."""
+        if not group or not self.paths.override.exists() or self.paths.override.read_bytes() != LOADER:
+            return False
+        session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+        if not session:
+            return False
+        profiles = saved.get("profiles", {})
+        if not isinstance(profiles, dict):
+            return False
+        targets = profiles.get(group["id"], [])
+        names = [member["name"] for member in group["members"]]
+        if (not isinstance(targets, list) or len(targets) != len(names)
+                or any(not isinstance(target, dict) for target in targets)
+                or {target.get("name") for target in targets} != set(names)):
+            return False
+        try:
+            active_data = self.paths.active.read_bytes()
+            pending_data = self.paths.pending.read_bytes()
+            if saved_session(active_data) != session or saved_session(pending_data) != session:
+                return False
+            active = parse_deferred(active_data)
+            pending = parse_deferred(pending_data)
+        except (OSError, ValueError):
+            return False
+        active_by_name = {target.get("name"): target for target in active}
+        pending_by_name = {target.get("name"): target for target in pending}
+        saved_by_name = {target["name"]: target for target in targets}
+        if (len(active_by_name) != len(active) or len(pending_by_name) != len(pending)
+                or any(name not in active_by_name or name not in pending_by_name for name in names)):
+            return False
+        for member in group["members"]:
+            target = saved_by_name[member["name"]]
+            logical = layout_pairs(target)
+            physical = layout_pairs(member)
+            if (not logical or len(logical) != 1 or physical != logical * 2
+                    or not equivalent(member, active_by_name[member["name"]])
+                    or not equivalent(target, pending_by_name[member["name"]])):
+                return False
+        return True
+
     def snapshot(self, event_device=""):
         devices = self.hypr.devices()
         records = self.records if self.records is not None else metadata()
@@ -201,10 +250,17 @@ class Session:
                            "saved": saved, "loader": self.file_blob(self.paths.override),
                            "active": self.file_blob(self.paths.active),
                            "pending": self.file_blob(self.paths.pending)})
-        rows = self.catalog.current_rows(group["members"][0]) if group else []
         consistent = bool(group) and all(config_of(m) == config_of(group["members"][0]) for m in group["members"])
+        physical_rows = self.catalog.current_rows(group["members"][0]) if group else []
+        compatibility = consistent and self.single_layout_compatibility(group, saved)
+        rows = physical_rows[:1] if compatibility else physical_rows
         activity = self.layout_activity(group, event_device) if consistent else {}
         active = active_index(group, activity.get("source", "")) if consistent else -1
+        physical_indices = {member.get("active_layout_index", -1) for member in group["members"]} if group else set()
+        if compatibility:
+            active = (0 if physical_indices
+                      and all(0 <= index < len(physical_rows) for index in physical_indices)
+                      else -1)
         if not 0 <= active < len(rows):
             active = -1
         problem = "" if consistent else ("Choose the keyboard you type on." if not group else
@@ -215,7 +271,8 @@ class Session:
             problem = "This keyboard uses a custom layout. It can be switched, but will not be overwritten."
         return {"groups": groups, "group": group, "saved": saved, "revision": revision,
                 "rows": rows, "active": active, "consistent": consistent, "problem": problem,
-                "activity": activity}
+                "activity": activity, "physicalRows": physical_rows,
+                "compatibilityMode": SINGLE_LAYOUT_COMPATIBILITY if compatibility else ""}
 
     def layout_activity(self, group, event_device):
         # Cache the verified interface, never a layout index. Read its current
@@ -255,8 +312,10 @@ class Session:
         first = by_name[group["members"][0]["name"]]
         candidate = {**config_of(group["members"][0]), **{key: first.get(key, "") for key in OWNED}}
         rows = self.catalog.current_rows(candidate)
-        pending = any(not equivalent(member, {**config_of(member), **{key: by_name[member["name"]].get(key, "") for key in OWNED}})
-                      for member in group["members"])
+        pending = False if snap["compatibilityMode"] else any(
+            not equivalent(member, {**config_of(member), **{
+                key: by_name[member["name"]].get(key, "") for key in OWNED}})
+            for member in group["members"])
         return rows, self.catalog.shortcut(candidate.get("options", "")), pending
 
     def status(self, event_device=""):
@@ -268,6 +327,8 @@ class Session:
         group = snap["group"]
         configured, configured_shortcut, pending = self.configured(snap)
         active_indices = {d.get("active_layout_index", -1) for d in group["members"]} if snap["consistent"] else set()
+        if snap["compatibilityMode"]:
+            active_indices = {0} if snap["active"] == 0 else set()
         return {"revision": snap["revision"], "devices": [{k: g[k] for k in ("id", "label", "certain")} for g in snap["groups"]],
                 "device": group["id"] if group else "", "deviceLabel": group["label"] if group else "",
                 "deviceNames": group["names"] if group else [],
@@ -275,7 +336,8 @@ class Session:
                 "activeLayouts": [row for i, row in enumerate(snap["rows"]) if i in active_indices],
                 "shortcut": self.catalog.shortcut(group["members"][0].get("options", "")) if group else "custom",
                 "configuredLayouts": configured, "configuredShortcut": configured_shortcut,
-                "pendingRestart": pending}
+                "pendingRestart": pending, "physicalLayouts": snap["physicalRows"],
+                "compatibilityMode": snap["compatibilityMode"]}
 
     def require_current(self, revision, writable=True, event_device=""):
         snap = self.snapshot(event_device)
@@ -347,16 +409,25 @@ class Session:
         if not self._runtime_matches(expected):
             raise SettingsError("The previous keyboard setup could not be confirmed.")
 
-    def save(self, pairs, shortcut, revision, event_device=""):
+    def save(self, pairs, shortcut, revision, event_device="", expected_active_id=None):
         """Apply a validated layout set now, with durable file and runtime rollback."""
         with self.paths.lock():
             if self.paths.transaction.exists():
                 raise SettingsError("A previous file update needs recovery before editing again.")
             snap = self.require_current(revision, event_device=event_device)
+            if expected_active_id is not None:
+                active_id = snap["rows"][snap["active"]]["id"]
+                if not isinstance(expected_active_id, str) or active_id != expected_active_id:
+                    raise SettingsError("The active layout changed. Review the refreshed list and try again.")
             rows = self.catalog.resolve(pairs)
             self.paths.check_loader()
             self.hypr.check()
+            session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+            use_compatibility = len(rows) == 1 and len(snap["physicalRows"]) > 1
+            if use_compatibility and not session:
+                raise SettingsError("The desktop session could not be identified. No keyboard settings were changed.")
             targets = []
+            live_targets = []
             for device in snap["group"]["members"]:
                 proposal = config_of(device)
                 proposal.update(layout=",".join(row["layout"] for row in rows),
@@ -364,12 +435,20 @@ class Session:
                                 options=self.catalog.options(device.get("options", ""), shortcut))
                 validate(proposal, self.catalog)
                 targets.append({"name": device["name"], **{key: proposal[key] for key in OWNED}})
+                if use_compatibility:
+                    proposal.update(layout=proposal["layout"] + "," + proposal["layout"],
+                                    variant=proposal["variant"] + "," + proposal["variant"])
+                    validate(proposal, self.catalog)
+                live_targets.append({"name": device["name"], **{key: proposal[key] for key in OWNED}})
 
             saved = copy.deepcopy(snap["saved"])
             saved["preferred"] = snap["group"]["id"]
             saved.setdefault("profiles", {})[snap["group"]["id"]] = targets
             written_profile = encoded(saved)
-            written_data = render_deferred(saved)
+            active_saved = copy.deepcopy(saved)
+            active_saved["profiles"][snap["group"]["id"]] = live_targets
+            written_active = render_deferred(active_saved, session)
+            written_pending = render_deferred(saved, session)
 
             current_ids = [row["id"] for row in snap["rows"]]
             requested_ids = [row["id"] for row in rows]
@@ -390,15 +469,15 @@ class Session:
             applied_runtime = [{"name": device["name"], "address": device.get("address"),
                                 "active_layout_index": after_index,
                                 **{key: target[key] for key in OWNED}}
-                               for device, target in zip(snap["group"]["members"], targets)]
+                               for device, target in zip(snap["group"]["members"], live_targets)]
             transaction = {
                 "kind": "live-save", "token": secrets.token_hex(16),
                 "profile": self.file_blob(self.paths.profile),
                 "active": self.file_blob(self.paths.active),
                 "pending": self.file_blob(self.paths.pending),
                 "writtenProfile": base64.b64encode(written_profile).decode(),
-                "writtenActive": base64.b64encode(written_data).decode(),
-                "writtenPending": base64.b64encode(written_data).decode(),
+                "writtenActive": base64.b64encode(written_active).decode(),
+                "writtenPending": base64.b64encode(written_pending).decode(),
                 "previousRuntime": previous_runtime,
                 "appliedRuntime": applied_runtime,
             }
@@ -414,11 +493,11 @@ class Session:
                 if any(device.get("active_layout_index") != before_index
                        for device in snap["group"]["members"]):
                     self._switch_members(snap["group"]["members"], before_index)
-                atomic(self.paths.active, written_data)
-                atomic(self.paths.pending, written_data)
+                atomic(self.paths.active, written_active)
+                atomic(self.paths.pending, written_pending)
                 atomic(self.paths.profile, written_profile)
-                if (self.paths.active.read_bytes() != written_data
-                        or self.paths.pending.read_bytes() != written_data
+                if (self.paths.active.read_bytes() != written_active
+                        or self.paths.pending.read_bytes() != written_pending
                         or self.paths.profile.read_bytes() != written_profile):
                     raise OSError("saved keyboard files failed readback")
                 self.hypr.reload()

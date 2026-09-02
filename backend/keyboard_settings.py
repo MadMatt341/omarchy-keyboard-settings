@@ -32,7 +32,8 @@ def main():
         elif action == "switch":
             data = session.switch(request["index"], request["revision"])
         elif action == "save":
-            data = session.save(request["layouts"], request["shortcut"], request["revision"], request.get("eventDevice", ""))
+            data = session.save(request["layouts"], request["shortcut"], request["revision"],
+                                request.get("eventDevice", ""), request.get("expectedActiveId"))
         else:
             raise SettingsError("Unknown request.")
     print(json.dumps({"ok": True, "data": data}, ensure_ascii=False))
