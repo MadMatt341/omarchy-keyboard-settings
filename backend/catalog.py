@@ -6,6 +6,8 @@ import os
 import tempfile
 import xml.etree.ElementTree as ET
 
+from .deferred_runtime import UnsafeState, read_path
+
 
 class SettingsError(Exception):
     pass
@@ -24,6 +26,7 @@ def pair_id(layout, variant=""):
 
 class Catalog:
     CACHE_SCHEMA = 1
+    MAX_CACHE_BYTES = 2 * 1024 * 1024
 
     def __init__(self, registry=Path("/usr/share/X11/xkb/rules/evdev.xml"), cache=None):
         registry = Path(registry)
@@ -97,7 +100,10 @@ class Catalog:
 
     def _load_cache(self, sources):
         try:
-            value = json.loads(self.cache.read_text())
+            data = read_path(self.cache, self.MAX_CACHE_BYTES, missing_ok=True)
+            if data is None:
+                return False
+            value = json.loads(data)
             if value.get("schema") != self.CACHE_SCHEMA or value.get("sources") != sources:
                 return False
             layouts, pairs, groups = value["layouts"], value["pairs"], value["groups"]
@@ -105,7 +111,7 @@ class Catalog:
                 return False
             self.layouts, self.pairs, self.groups = layouts, pairs, set(groups)
             return True
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, UnsafeState, ValueError, UnicodeError, KeyError, TypeError):
             return False
 
     def _write_cache(self, sources):

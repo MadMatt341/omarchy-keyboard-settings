@@ -16,8 +16,8 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.catalog import SettingsError
-from backend.deferred import LOADER, render as render_deferred
-from backend.session import Paths, Session, atomic, encoded
+from backend.deferred import LOADER, PROMOTER, render as render_deferred
+from backend.session import Paths, Session, atomic, encoded, path_present
 from tools.package_support import ROOT, ID, runtime_files, stage
 
 STOCK = 'omarchy.keyboard-layout'
@@ -68,13 +68,13 @@ def run(apply=False, remove=False):
     before = shell.read_bytes()
     settings = json.loads(before)
     if remove:
-        if not receipt.exists(): raise SettingsError('There is no local installation receipt to restore.')
-        saved = json.loads(receipt.read_text())
+        if not path_present(receipt): raise SettingsError('There is no local installation receipt to restore.')
+        saved = json.loads(paths.owned_blob(receipt, missing_ok=False))
         updated, _ = replace(settings, ID, STOCK, saved['originalEntry'])
         if not target.is_dir() or tree_hash(target) != saved['files']:
             raise SettingsError('The installed plugin has local edits. Preserve and review them before removal.')
         print('Would restore the stock indicator in the current bar position and archive this plugin.')
-        print('The saved keyboard loader and data would be removed; your untouched input.lua would take effect again.')
+        print('The saved keyboard loader, promotion helper and data would be removed; your untouched input.lua would take effect again.')
         if not apply: return
         Session(paths).recover_pending()
         with paths.lock():
@@ -87,9 +87,10 @@ def run(apply=False, remove=False):
             receipt.rename(archive / 'installation.json')
         print('Restored the stock indicator. The removed plugin was archived, not deleted.')
         return
-    if target.exists() or receipt.exists():
+    if path_present(target) or path_present(receipt):
         raise SettingsError('A local installation already exists. It will not be overwritten.')
-    if any(path.exists() for path in (paths.override, paths.active, paths.pending, paths.profile)):
+    if any(path.exists() or path.is_symlink() for path in
+           (paths.override, paths.promoter, paths.active, paths.pending, paths.profile)):
         raise SettingsError('Saved keyboard state already exists. Use the documented Git migration instead.')
     updated, original = replace(settings, STOCK, ID)
     with tempfile.TemporaryDirectory(prefix='keyboard-settings-package-') as temp:
@@ -113,6 +114,7 @@ def run(apply=False, remove=False):
                 os.rename(incoming, target)
                 atomic(receipt, encoded({'originalEntry': original, 'files': tree_hash(target)}))
                 empty = render_deferred({'profiles': {}})
+                atomic(paths.promoter, PROMOTER)
                 atomic(paths.active, empty)
                 atomic(paths.pending, empty)
                 atomic(paths.override, LOADER)
@@ -124,6 +126,7 @@ def run(apply=False, remove=False):
                     atomic(shell, before)
                 receipt.unlink(missing_ok=True)
                 paths.override.unlink(missing_ok=True)
+                paths.promoter.unlink(missing_ok=True)
                 paths.active.unlink(missing_ok=True)
                 paths.pending.unlink(missing_ok=True)
                 if target.exists(): shutil.move(target, backup / 'incomplete-plugin')

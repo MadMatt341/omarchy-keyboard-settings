@@ -56,8 +56,9 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prep
 omarchy plugin remove madmatt.keyboard-settings
 ```
 
-This restores the stock bar entry and resets the fixed loader plus its active and
-pending data. `--keep-settings` deliberately retains those files. The external
+This restores the stock bar entry and resets the fixed loader, its private
+promotion helper, and active/pending data. `--keep-settings` deliberately retains
+those files. The external
 receipt also allows recovery after generic disable removed the widget; if the
 checkout was deleted first, re-add it, prepare removal without activation, and
 remove it again. See the exact user and migration flows in
@@ -69,7 +70,7 @@ remove it again. See the exact user and migration flows in
 | --- | --- |
 | Plugin contract | Root `manifest.json`, stable ID `madmatt.keyboard-settings`, root `Keyboard.qml` entry point and native-only runtime. |
 | Git lifecycle | Dry-run activation and preparation for removal, external receipt/backups, retained-settings option, generic-disable repair and copied-install migration. |
-| Safety | Validated edits select a surviving layout, atomically write strict plugin-owned data, reload the fixed loader, verify every typing interface, and roll back files plus runtime on failure. Bounded locking, stale-revision checks and recovery records remain; there is no raw-input capture or `hyprctl eval hl.device`. |
+| Safety | Validated edits select a surviving layout, atomically write strict plugin-owned data, reload the fixed loader, verify every typing interface, and roll back files plus runtime on failure. Login promotion uses bounded no-follow state I/O; QML helpers use fixed executables, bounded streams, deadlines and whole-process-group cleanup. Stale-revision checks and recovery records remain; there is no raw-input capture or `hyprctl eval hl.device`. |
 | Performance | Source-hashed XKB catalog cache outside the watched checkout, event-query coalescing and offline latency budgets. |
 | Packaging | Manifest-derived version/file selection, empty stage, Omarchy validation, normalized deterministic archive and checksum. |
 | Rights/support | MIT license, support guide, private security-report route and privacy-safe diagnostics. No third-party code or media is bundled. |
@@ -98,21 +99,19 @@ Hyprland Lua support, the toggle loader, XKB registry data or libxkbcommon are
 hard failures and should be documented rather than hidden by a broad version
 claim.
 
-## Public beta sequence
+## Security-fix beta sequence
 
 The release owner selected the marketplace beta as the broader feedback cohort:
 
-1. Commit and push the reviewed `0.1.0-beta.1` candidate while the repository is
-   private, then run every tracked gate on that exact commit with a compatible
-   Omarchy runner.
-2. Make the repository public, enable private vulnerability reporting, and verify
-   its install, support, license and preview material without authentication.
-3. Tag that exact accepted commit as `v0.1.0-beta.1`, rebuild its reproducible
-   archive and checksum, and publish a GitHub prerelease with the open beta checks
-   stated plainly.
-4. Present the exact marketplace issue title and six-section body to the owner.
-   Create the public submission only after the owner confirms ownership, all five
-   checklist statements and the final text.
+1. Commit the reviewed `0.1.0-beta.2` candidate and run every tracked gate on
+   that exact commit with a compatible Omarchy runner.
+2. With explicit live authorization, upgrade activation, verify physical typing,
+   reload and next-session promotion, then append the exact evidence fingerprint.
+3. Tag that exact accepted commit as `v0.1.0-beta.2`, rebuild its reproducible
+   archive and checksum, and publish a GitHub prerelease describing the security
+   fixes and remaining compatibility checks.
+4. Edit the existing marketplace review issue to point at the exact beta.2 commit
+   and request revalidation; do not open a duplicate submission.
 5. Triage public feedback without collecting typed text or raw device output;
    repeat affected gates and reserve `v0.1.0` for a later stable promotion.
 

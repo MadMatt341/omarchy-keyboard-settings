@@ -6,8 +6,9 @@ independent plugin and is not an official Omarchy project.
 
 ![Keyboard Settings editor](preview.png)
 
-The first release is a **public beta**. `0.1.0-beta.1` has passed the automated,
-login and physical-typing checks recorded in [VALIDATION.md](VALIDATION.md).
+This is a **public beta**. `0.1.0-beta.2` hardens the login loader and recurring
+helper processes after marketplace security review; its exact offline and live
+status is recorded in [VALIDATION.md](VALIDATION.md).
 Compatibility is intentionally limited to the tested environment while beta
 feedback broadens coverage to clean accounts and different keyboard models.
 
@@ -41,11 +42,13 @@ keymaps and fixture screenshots cannot prove physical typing.
 The verified environment is Omarchy 4.0.2, Hyprland 0.56.2, Quickshell 0.3.1,
 Qt 6.11.2, libxkbcommon 1.13.2 and xkeyboard-config 2.48. These are tested
 versions, not minimum-version claims. The runtime uses only Omarchy components,
+fixed `/usr/bin/python3`, `/usr/bin/hyprctl` and `/usr/bin/timeout` executables,
 Python's standard library and installed system keyboard data. There are no pip
 packages, downloads or web services at runtime.
 
 Your Hyprland Lua configuration must load `default.hypr.toggles`. Activation
-installs one fixed, plugin-owned Lua loader. A save atomically updates strict,
+installs one fixed, plugin-owned Lua loader plus a private bounded promotion
+helper. A save atomically updates strict,
 non-executable active and fallback data, reloads Hyprland, and verifies all typing
 interfaces. The first saved layout remains the default at the next login. The
 session-bound fallback also supports recovery from older pending data. The plugin
@@ -64,8 +67,8 @@ python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py acti
 ```
 
 Activation replaces exactly one stock keyboard indicator in place, preserving
-its entry settings and center anchoring. It installs the fixed keyboard
-loader and stores the original entry and a bar backup under
+its entry settings and center anchoring. It installs the fixed keyboard loader,
+its private promotion helper, and stores the original entry and a bar backup under
 `$XDG_STATE_HOME/omarchy/keyboard-settings/`, outside the Git checkout. Installing
 the loader may make Hyprland re-read its configuration, but the loader uses the
 current active data and does not change the current keyboard settings.
@@ -100,14 +103,17 @@ omarchy plugin remove madmatt.keyboard-settings
 ```
 
 By default, preparation restores the stock indicator and backs up and removes
-the plugin-owned loader plus its active and fallback data, returning ownership to
-your existing Lua configuration. To keep the saved login keyboard configuration
-active after removing the UI, use:
+the plugin-owned loader, promotion helper, and active/fallback data, returning
+ownership to your existing Lua configuration. To keep the saved login keyboard
+configuration active after removing the UI, use:
 
 ```sh
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py prepare-remove --keep-settings --apply
 omarchy plugin remove madmatt.keyboard-settings
 ```
+
+Retention accepts only the exact current loader/helper and valid active/fallback
+data. Reactivate first if an older or incomplete runtime set is reported.
 
 If generic disable removed the bar entry first, `prepare-remove` can reconstruct
 the stock entry from its receipt. If the checkout was already deleted, add the

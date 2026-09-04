@@ -4,12 +4,13 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 import fcntl
 from unittest.mock import patch
 
 from backend.catalog import Catalog, SettingsError
-from backend.deferred import (DATA_HEADER, LOADER, parse as parse_deferred,
+from backend.deferred import (DATA_HEADER, LOADER, PROMOTER, parse as parse_deferred,
                               render as render_deferred, saved_session)
 from backend.keymap import Keymap, validate
 from backend.devices import resolve, pick, active_index, bits, metadata, normalized
@@ -106,6 +107,30 @@ class CatalogCacheTests(unittest.TestCase):
             with patch("backend.catalog.tempfile.mkstemp", side_effect=PermissionError("read only")):
                 self.assertEqual(Catalog(registry, unwritable).layouts[0]["label"], "Changed layout")
             self.assertFalse(unwritable.exists())
+
+    def test_cache_links_fifos_and_oversized_data_are_not_followed_or_read(self):
+        for kind in ("symlink", "fifo", "oversized"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
+                registry = self.registry(folder)
+                cache = Path(folder) / "cache/catalog.json"
+                cache.parent.mkdir()
+                victim = Path(folder) / "victim"
+                victim.write_text("leave me alone")
+                victim.chmod(0o600)
+                if kind == "symlink":
+                    cache.symlink_to(victim)
+                elif kind == "fifo":
+                    os.mkfifo(cache, 0o600)
+                else:
+                    cache.write_bytes(b"x" * (Catalog.MAX_CACHE_BYTES + 1))
+                    cache.chmod(0o600)
+                started = time.monotonic()
+                self.assertEqual(Catalog(registry, cache).layouts[0]["label"], "Test layout")
+                self.assertLess(time.monotonic() - started, 1)
+                self.assertEqual(victim.read_text(), "leave me alone")
+                self.assertTrue(cache.is_file())
+                self.assertFalse(cache.is_symlink())
+                self.assertEqual(cache.stat().st_mode & 0o777, 0o600)
 
 
 class DeviceTests(unittest.TestCase):
@@ -213,9 +238,10 @@ class DeferredLoaderTests(unittest.TestCase):
 
     def test_loader_keeps_active_on_reload_and_promotes_in_next_session(self):
         with tempfile.TemporaryDirectory() as directory:
-            state = Path(directory) / 'state'
+            state = Path(directory) / "state'quoted"
             root = state / 'omarchy/keyboard-settings'
             root.mkdir(parents=True)
+            root.chmod(0o700)
             loader = Path(directory) / 'loader.lua'
             loader.write_bytes(LOADER)
             active_saved = self.saved('us,pl')
@@ -228,6 +254,10 @@ class DeferredLoaderTests(unittest.TestCase):
             pending = render_deferred(pending_saved, 'session-a')
             (root / 'active-v1.conf').write_bytes(active)
             (root / 'pending-v1.conf').write_bytes(pending)
+            (root / 'promote-v1.py').write_bytes(PROMOTER)
+            (root / 'lock').write_bytes(b'')
+            for path in root.iterdir():
+                path.chmod(0o600)
             runner = Path(directory) / 'runner.lua'
             runner.write_text('''
 local devices = {}
@@ -263,27 +293,28 @@ assert(devices[3].kb_layout == arg[2] and devices[4].kb_layout == arg[2])
             state = Path(directory) / 'state'
             root = state / 'omarchy/keyboard-settings'
             root.mkdir(parents=True)
+            root.chmod(0o700)
             loader = Path(directory) / 'loader.lua'
             loader.write_bytes(LOADER)
             active = render_deferred(self.saved('us,pl'), 'session-a')
             pending = render_deferred(self.saved('pl,us'), 'session-a')
             (root / 'active-v1.conf').write_bytes(active)
             (root / 'pending-v1.conf').write_bytes(pending)
+            (root / 'promote-v1.py').write_bytes(PROMOTER)
+            (root / 'lock').write_bytes(b'')
+            for path in root.iterdir():
+                path.chmod(0o600)
             runner = Path(directory) / 'runner.lua'
             runner.write_text('''
 local devices = {}
 hl = { device = function(spec) table.insert(devices, spec) end }
-io.popen = function()
-  return {
-    read = function() return "" end,
-    close = function() return nil end,
-  }
-end
 dofile(arg[1])
 assert(#devices == 1 and devices[1].kb_layout == "us,pl")
 ''')
             env = dict(os.environ, XDG_STATE_HOME=str(state), HYPRLAND_INSTANCE_SIGNATURE='session-b')
-            subprocess.run(['lua', str(runner), str(loader)], check=True, env=env)
+            with (root / 'lock').open('r+') as held:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                subprocess.run(['lua', str(runner), str(loader)], check=True, env=env)
             self.assertEqual((root / 'active-v1.conf').read_bytes(), active)
 
 
@@ -301,6 +332,7 @@ class TransactionTests(unittest.TestCase):
         self.paths.main.write_text('require("default.hypr.toggles")\n')
         self.input = self.paths.main.with_name('input.lua')
         self.input.write_text('-- original user file; never rewritten\n')
+        atomic(self.paths.promoter, PROMOTER)
         atomic(self.paths.override, LOADER)
         self.hypr = FakeHyprland(self.paths)
         initial = render_deferred({'profiles': {'fixture': [
@@ -391,6 +423,19 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(status['active'], -1)
         self.assertEqual(status['activeLayouts'], [])
         self.assertIn('different or unknown layouts', status['problem'])
+
+    def test_promoter_change_invalidates_revision_and_compatibility(self):
+        status = self.session.status()
+        self.session.save(['us/'], 'both-alt', status['revision'])
+        before = self.session.status()
+        self.assertEqual(before['compatibilityMode'], 'duplicated-single-layout')
+        changed = bytearray(PROMOTER)
+        changed[-1] ^= 1
+        atomic(self.paths.promoter, changed)
+        after = self.session.status()
+        self.assertNotEqual(after['revision'], before['revision'])
+        self.assertEqual(after['compatibilityMode'], '')
+        self.assertEqual([row['id'] for row in after['layouts']], ['us/', 'us/'])
 
     def test_non_active_removal_keeps_two_physical_groups_without_pre_switch(self):
         for device in self.hypr.items[:2]:
@@ -737,11 +782,44 @@ assert(devices[1].kb_layout == "us" and devices[2].kb_layout == "us")
         self.assertFalse(self.paths.profile.exists())
         self.assertEqual(self.hypr.calls, [])
 
+    def test_reset_reload_failure_restores_loader_last(self):
+        atomic(self.paths.profile, encoded({"profiles": {}}))
+        owned = (self.paths.promoter, self.paths.active, self.paths.pending,
+                 self.paths.profile, self.paths.override)
+        original = {path: path.read_bytes() for path in owned}
+        restored = []
+        real_atomic = atomic
+
+        def observe_restore(path, content):
+            path = Path(path)
+            if path in original and not path.exists():
+                restored.append(path)
+            return real_atomic(path, content)
+
+        self.hypr.fail_reload = True
+        with patch("backend.session.atomic", side_effect=observe_restore):
+            with self.assertRaisesRegex(SettingsError, "injected reload failure"):
+                self.session.reset_saved()
+        self.assertEqual(restored, list(owned))
+        self.assertEqual({path: path.read_bytes() for path in owned}, original)
+        self.assertEqual(self.hypr.calls, [("reload", ""), ("reload", "")])
+
     def test_desktop_timeout_and_missing_command_are_bounded_errors(self):
-        for failure in (subprocess.TimeoutExpired('hyprctl', 8), OSError('missing')):
-            with patch('backend.session.subprocess.run', side_effect=failure):
+        with self.assertRaisesRegex(SettingsError, 'did not respond'):
+            Hyprland._bounded(['/usr/bin/python3', '-c', 'import time; time.sleep(60)'], timeout=0.03)
+        with patch('backend.session.subprocess.Popen', side_effect=OSError('missing')):
+            with self.assertRaisesRegex(SettingsError, 'did not respond'):
+                Hyprland().devices()
+
+    def test_desktop_stdout_and_stderr_floods_are_bounded(self):
+        for descriptor in (1, 2):
+            with self.subTest(descriptor=descriptor):
+                program = ("import os\n"
+                           f"chunk=b'x'*65536\nwhile True: os.write({descriptor}, chunk)\n")
+                started = time.monotonic()
                 with self.assertRaisesRegex(SettingsError, 'did not respond'):
-                    Hyprland().devices()
+                    Hyprland._bounded(['/usr/bin/python3', '-c', program], timeout=3)
+                self.assertLess(time.monotonic() - started, 2)
 
 
 if __name__ == '__main__': unittest.main()

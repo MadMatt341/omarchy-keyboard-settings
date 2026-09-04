@@ -14,14 +14,15 @@ Read [README.md](README.md) for commands, then the relevant part of
 | Bar placement, popup sizing, animation setting | `Keyboard.qml` |
 | Language label, flag feedback, bar tooltip | `Indicator.qml` |
 | Picker pages, focus, search, layout actions | `Picker.qml`, `LayoutRow.qml` |
-| UI state, subprocess requests, compositor events | `Backend.qml` |
+| UI state, subprocess requests, compositor events | `Backend.qml`, `HelperProcess.qml` |
 | JSON command interface | `backend/keyboard_settings.py` |
 | Layout IDs, variants, shortcut options | `backend/catalog.py` |
 | Physical keyboard grouping | `backend/devices.py` |
 | Active interface, observation cache | `backend/session.py` (`layout_activity`, `status`) |
 | Character and shortcut validation | `backend/keymap.py` |
 | Live save, persistence and recovery | `backend/session.py` |
-| Fixed Lua loader and inert active/pending data | `backend/deferred.py` |
+| Fixed Lua loader and inert active/pending data | `backend/deferred.py`, `backend/deferred_runtime.py` |
+| Runtime process supervision and output bounds | `backend/process_supervisor.py` |
 | Git activation/removal | `tools/plugin.py`, `tests/test_integration.py` |
 | Package contents and legacy copied installs | `tools/package_support.py`, `tools/package.py`, `tools/install.py`, `manifest.json`, `qmldir` |
 | Redacted support report | `tools/diagnostics.py`, `SUPPORT.md` |

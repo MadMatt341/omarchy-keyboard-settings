@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import os
 import resource
+import shutil
 import statistics
 import subprocess
 import sys
@@ -13,7 +14,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backend.catalog import Catalog
-from backend.deferred import LOADER, render as render_deferred
+from backend.deferred import LOADER, PROMOTER, render as render_deferred
+from backend.deferred_runtime import SUCCESS_PREFIX
 from backend.session import Paths, Session
 from test_backend import FakeHyprland, record
 
@@ -39,11 +41,13 @@ def fixture(directory):
     paths.main.parent.mkdir(parents=True)
     paths.main.write_text('require("default.hypr.toggles")\n')
     paths.override.parent.mkdir(parents=True)
-    paths.override.write_bytes(LOADER)
     paths.root.mkdir(parents=True)
+    paths.root.chmod(0o700)
     empty = render_deferred({'profiles': {}})
-    paths.active.write_bytes(empty)
-    paths.pending.write_bytes(empty)
+    for path, content in ((paths.override, LOADER), (paths.promoter, PROMOTER),
+                          (paths.active, empty), (paths.pending, empty)):
+        path.write_bytes(content)
+        path.chmod(0o600)
     records = [record(), record("typing-keyboard-aux"), record("mouse-keyboard", "usb-mouse")]
     records[-1]["primary"] = False
     records.append(dict(name="mouse", group="usb-mouse", typing=False, pointer=True, primary=False))
@@ -75,6 +79,17 @@ def main():
 
         switching = measure(switch, 30)
 
+        promoter_command = ["/usr/bin/timeout", "--signal=TERM", "--kill-after=1s", "2s",
+                            "/usr/bin/python3", "-I", "-B", str(session.paths.promoter),
+                            str(session.paths.root), "offline-health"]
+
+        def promotion_helper():
+            result = subprocess.run(promoter_command, capture_output=True, check=True, timeout=4)
+            if not result.stdout.startswith(SUCCESS_PREFIX):
+                raise RuntimeError("the promotion helper returned no validated state")
+
+        promotion = measure(promotion_helper, 30)
+
         one_layout_session = fixture(root / "one-layout-save")
         one_layout_save = measure(
             lambda: one_layout_session.save(
@@ -102,9 +117,12 @@ def main():
         helper_state = helper_root / "state"
         helper_cache = helper_root / "cache"
         helper_bin = helper_root / "bin"
+        staged_plugin = helper_root / "plugin"
         (helper_config / "hypr").mkdir(parents=True)
         helper_state.mkdir()
         helper_bin.mkdir()
+        shutil.copytree(ROOT / "backend", staged_plugin / "backend",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         (helper_config / "hypr/hyprland.lua").write_text('require("default.hypr.toggles")\n')
         hyprctl = helper_bin / "hyprctl"
         hyprctl.write_text("""#!/bin/sh
@@ -114,12 +132,20 @@ case "$*" in
 esac
 """)
         hyprctl.chmod(0o700)
-        idle_environment = dict(os.environ, XDG_CONFIG_HOME=str(helper_config),
-                                XDG_STATE_HOME=str(helper_state), XDG_CACHE_HOME=str(helper_cache),
-                                HYPRLAND_INSTANCE_SIGNATURE="offline-health",
-                                PYTHONDONTWRITEBYTECODE="1",
-                                PATH=str(helper_bin) + os.pathsep + os.environ["PATH"])
-        status_command = [sys.executable, str(ROOT / "backend/keyboard_settings.py"), "status", "{}"]
+        staged_session = staged_plugin / "backend/session.py"
+        staged_session.write_text(staged_session.read_text().replace(
+            '"/usr/bin/hyprctl"', repr(str(hyprctl))))
+        idle_environment = {
+            "HOME": os.environ.get("HOME", str(helper_root)),
+            "XDG_CONFIG_HOME": str(helper_config),
+            "XDG_STATE_HOME": str(helper_state),
+            "XDG_CACHE_HOME": str(helper_cache),
+            "HYPRLAND_INSTANCE_SIGNATURE": "offline-health",
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "PATH": "/usr/bin",
+        }
+        status_command = ["/usr/bin/python3", "-I", "-B",
+                          str(staged_plugin / "backend/process_supervisor.py"), "status", "{}"]
         subprocess.run(status_command, env=idle_environment, capture_output=True, check=True, timeout=5)
         usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
         idle_status = measure(
@@ -135,6 +161,7 @@ esac
                            "oneCorePercent": idle_cpu_seconds / 300 * 100}
         report = {"catalogColdMs": cold, "catalogWarmMs": warm, "catalogBytes": payload_sizes[-1],
                   "isolatedStatusMs": status, "isolatedSwitchMs": switching,
+                  "promotionHelperMs": promotion,
                   "oneLayoutSaveMs": one_layout_save, "fourLayoutSaveMs": four_layout_save,
                   "fullCatalogRows": len(flat), "searchMs": search,
                   "idleStatusHelperMs": idle_status, "idleFiveMinuteEquivalent": idle_equivalent}

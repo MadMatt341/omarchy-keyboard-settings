@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import test_backend
 from backend.deferred import LOADER
-from backend.session import Session
+from backend.session import Session, atomic
 
 
 class ActivityTests(unittest.TestCase):
@@ -97,7 +97,7 @@ class ActivityTests(unittest.TestCase):
         self.split()
         self.paths.activity.parent.mkdir(parents=True, exist_ok=True)
         for value in ('not json', '[]', 'null'):
-            self.paths.activity.write_text(value)
+            atomic(self.paths.activity, value.encode())
             self.assertEqual(self.restarted().status()['active'], -1)
             self.assertIsInstance(json.loads(self.paths.activity.read_text()), dict)
 

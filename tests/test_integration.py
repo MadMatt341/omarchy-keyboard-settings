@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -15,9 +16,13 @@ from tools.diagnostics import collect as diagnostics
 from tools.plugin import activate, prepare_remove
 from tools.package_support import archive_tree, runtime_files, stage
 from backend.catalog import SettingsError
-from backend.deferred import (DATA_HEADER, DATA_HEADER_V1, LOADER, MARKER,
+from backend.deferred import (BETA1_LOADER_BYTES, BETA1_LOADER_SHA256, DATA_HEADER, DATA_HEADER_V1,
+                              LOADER, PROMOTER,
                               parse as parse_deferred, render_rows, saved_session)
 from backend.session import Session
+
+
+BETA1_LOADER = (Path(__file__).parent / 'fixtures/beta1-loader.lua').read_bytes()
 
 
 class InstallTests(unittest.TestCase):
@@ -120,6 +125,13 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class GitLifecycleTests(unittest.TestCase):
+    def test_beta1_loader_upgrade_allowlist_is_exact(self):
+        self.assertEqual(hashlib.sha256(BETA1_LOADER).hexdigest(), BETA1_LOADER_SHA256)
+        self.assertEqual(len(BETA1_LOADER), BETA1_LOADER_BYTES)
+        self.assertEqual(BETA1_LOADER_SHA256,
+                         'f18edb081768f1418d264f6ceabb6ec2a3de19a43cbb0999d6722ffda1ad864d')
+        self.assertEqual(BETA1_LOADER_BYTES, 4672)
+
     def fixture(self, root):
         config = root / '.config/omarchy'
         target = config / 'plugins' / ID
@@ -158,9 +170,18 @@ class GitLifecycleTests(unittest.TestCase):
                 loader = root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua'
                 active_data = receipt.with_name('active-v1.conf')
                 pending_data = receipt.with_name('pending-v1.conf')
+                promoter = receipt.with_name('promote-v1.py')
                 self.assertEqual(loader.read_bytes(), LOADER)
+                self.assertEqual(promoter.read_bytes(), PROMOTER)
                 self.assertEqual(parse_deferred(active_data.read_bytes()), [])
                 self.assertEqual(parse_deferred(pending_data.read_bytes()), [])
+                current = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                           for path in (receipt, loader, promoter, active_data, pending_data)}
+                current_shell = shell.read_bytes()
+                activate(True, target)
+                self.assertEqual(shell.read_bytes(), current_shell)
+                self.assertEqual({path: (path.read_bytes(), path.stat().st_mtime_ns)
+                                  for path in current}, current)
                 # Updating the checkout does not remove the external receipt.
                 # Re-running activation upgrades an older static loader and both
                 # data formats while preserving a pending edit and the bar.
@@ -171,7 +192,8 @@ class GitLifecycleTests(unittest.TestCase):
                     current = render_rows(rows, 'session-a').splitlines()
                     return DATA_HEADER_V1 + b'\n'.join(current[2:]) + b'\n'
 
-                loader.write_bytes(MARKER.encode() + b'-- previous static loader\n')
+                previous_loader = BETA1_LOADER
+                loader.write_bytes(previous_loader)
                 active_data.write_bytes(legacy(active_rows))
                 pending_data.write_bytes(render_rows(pending_rows, 'session-old'))
                 receipt_before, shell_before = receipt.read_bytes(), shell.read_bytes()
@@ -192,6 +214,7 @@ class GitLifecycleTests(unittest.TestCase):
                 (target / 'manifest.json').write_text(json.dumps({'id': ID, 'updated': True}))
                 profile = root / '.local/state/omarchy/keyboard-settings/settings.json'
                 profile.write_text('{}')
+                profile.chmod(0o600)
                 transaction.write_text('{"kind":"deferred-save"}')
                 with self.assertRaisesRegex(SettingsError, 'pending keyboard file update'):
                     prepare_remove(True, False, target)
@@ -207,6 +230,7 @@ class GitLifecycleTests(unittest.TestCase):
             self.assertFalse(loader.exists())
             self.assertFalse(active_data.exists())
             self.assertFalse(pending_data.exists())
+            self.assertFalse(promoter.exists())
             self.assertEqual(desktop.calls, [('reload', '')])
             self.assertTrue(target.exists(), 'Omarchy owns deletion of the Git checkout')
 
@@ -219,9 +243,160 @@ class GitLifecycleTests(unittest.TestCase):
                 activate(True, target)
                 profile = root / '.local/state/omarchy/keyboard-settings/settings.json'
                 profile.write_text('{"kept":true}')
+                profile.chmod(0o600)
                 prepare_remove(True, True, target)
             self.assertEqual(profile.read_text(), '{"kept":true}')
             self.assertEqual((root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua').read_bytes(), LOADER)
+            self.assertEqual((root / '.local/state/omarchy/keyboard-settings/promote-v1.py').read_bytes(), PROMOTER)
+
+    def test_keep_settings_refuses_incomplete_or_old_runtime(self):
+        cases = ("missing-promoter", "linked-promoter", "beta1-loader", "missing-runtime")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                target, shell, _ = self.fixture(root)
+                env = {'XDG_CONFIG_HOME': str(root / '.config'),
+                       'XDG_STATE_HOME': str(root / '.local/state')}
+                with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
+                    activate(True, target)
+                    state = root / '.local/state/omarchy/keyboard-settings'
+                    promoter = state / 'promote-v1.py'
+                    loader = root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua'
+                    victim = root / 'victim'
+                    if case == "missing-promoter":
+                        promoter.unlink()
+                    elif case == "linked-promoter":
+                        promoter.unlink()
+                        victim.write_text('leave me alone')
+                        victim.chmod(0o600)
+                        promoter.symlink_to(victim)
+                    elif case == "beta1-loader":
+                        loader.write_bytes(b'-' * BETA1_LOADER_BYTES)
+                    else:
+                        for path in (loader, promoter, state / 'active-v1.conf',
+                                     state / 'pending-v1.conf'):
+                            path.unlink()
+                    before = shell.read_bytes()
+                    receipt = state / 'installation.json'
+                    receipt_before = receipt.read_bytes()
+                    with self.assertRaises(SettingsError):
+                        prepare_remove(True, True, target)
+                    self.assertEqual(shell.read_bytes(), before)
+                    self.assertEqual(receipt.read_bytes(), receipt_before)
+                    if case == "linked-promoter":
+                        self.assertEqual(victim.read_text(), 'leave me alone')
+
+    def test_activation_refuses_modified_or_linked_promotion_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, _ = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'),
+                   'XDG_STATE_HOME': str(root / '.local/state')}
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
+                activate(True, target)
+                promoter = root / '.local/state/omarchy/keyboard-settings/promote-v1.py'
+                promoter.write_bytes(b'changed\n')
+                with self.assertRaisesRegex(SettingsError, 'Cannot read promote-v1.py'):
+                    activate(False, target)
+                promoter.unlink()
+                victim = root / 'victim.py'
+                victim.write_text('do not replace\n')
+                promoter.symlink_to(victim)
+                with self.assertRaisesRegex(SettingsError, 'Cannot read promote-v1.py'):
+                    activate(False, target)
+                self.assertEqual(victim.read_text(), 'do not replace\n')
+                self.assertEqual(json.loads(shell.read_text())['bar']['layout']['center'][0]['id'], ID)
+
+    def test_activation_refuses_same_length_modified_loader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, _ = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'),
+                   'XDG_STATE_HOME': str(root / '.local/state')}
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
+                activate(True, target)
+                loader = root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua'
+                changed = bytearray(LOADER)
+                changed[-1] ^= 1
+                loader.write_bytes(changed)
+                before = shell.read_bytes()
+                with self.assertRaisesRegex(SettingsError, 'override is not owned'):
+                    activate(False, target)
+                self.assertEqual(shell.read_bytes(), before)
+                self.assertEqual(loader.read_bytes(), changed)
+
+    def test_fresh_activation_failure_rolls_back_runtime_in_install_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, original = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'),
+                   'XDG_STATE_HOME': str(root / '.local/state')}
+            state = root / '.local/state/omarchy/keyboard-settings'
+            loader = root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua'
+            runtime = (state / 'promote-v1.py', state / 'active-v1.conf',
+                       state / 'pending-v1.conf', loader)
+            attempted = []
+            failed = False
+            from backend.session import atomic as real_atomic
+
+            def fail_loader(path, content):
+                nonlocal failed
+                path = Path(path)
+                if path in runtime:
+                    attempted.append(path)
+                if path == loader and not failed:
+                    failed = True
+                    raise OSError('injected loader install failure')
+                return real_atomic(path, content)
+
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env), \
+                    patch('tools.plugin.atomic', side_effect=fail_loader):
+                with self.assertRaisesRegex(OSError, 'injected loader install failure'):
+                    activate(True, target)
+            self.assertEqual(attempted, list(runtime))
+            self.assertEqual(json.loads(shell.read_text()), original)
+            self.assertFalse((state / 'installation.json').exists())
+            self.assertFalse(any(path.exists() or path.is_symlink() for path in runtime))
+
+    def test_beta1_upgrade_failure_restores_every_previous_byte(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, _ = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'),
+                   'XDG_STATE_HOME': str(root / '.local/state'),
+                   'HYPRLAND_INSTANCE_SIGNATURE': 'session-a'}
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
+                activate(True, target)
+                state = root / '.local/state/omarchy/keyboard-settings'
+                loader = root / '.local/state/omarchy/toggles/hypr/madmatt-keyboard-settings.lua'
+                promoter = state / 'promote-v1.py'
+                active = state / 'active-v1.conf'
+                pending = state / 'pending-v1.conf'
+                loader.write_bytes(BETA1_LOADER)
+                promoter.unlink()
+                active.write_bytes(DATA_HEADER_V1)
+                pending.write_bytes(DATA_HEADER_V1)
+                previous = {path: path.read_bytes() if path.exists() else None
+                            for path in (promoter, active, pending, loader)}
+                receipt = state / 'installation.json'
+                receipt_before, shell_before = receipt.read_bytes(), shell.read_bytes()
+                failed = False
+                from backend.session import atomic as real_atomic
+
+                def fail_loader(path, content):
+                    nonlocal failed
+                    if Path(path) == loader and not failed:
+                        failed = True
+                        raise OSError('injected loader upgrade failure')
+                    return real_atomic(path, content)
+
+                with patch('tools.plugin.atomic', side_effect=fail_loader):
+                    with self.assertRaisesRegex(OSError, 'injected loader upgrade failure'):
+                        activate(True, target)
+                self.assertEqual({path: path.read_bytes() if path.exists() else None
+                                  for path in previous}, previous)
+                self.assertEqual(receipt.read_bytes(), receipt_before)
+                self.assertEqual(shell.read_bytes(), shell_before)
 
     def test_prepare_remove_repairs_a_generic_disable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -248,8 +423,10 @@ class GitLifecycleTests(unittest.TestCase):
             from tools.install import tree_hash
             receipt.write_text(json.dumps({'originalEntry': original_entry,
                                            'files': tree_hash(target)}))
+            receipt.chmod(0o600)
             profile = receipt.with_name('settings.json')
             profile.write_text('{"kept":true}')
+            profile.chmod(0o600)
             env = {'XDG_CONFIG_HOME': str(root / '.config'),
                    'XDG_STATE_HOME': str(root / '.local/state')}
             with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):

@@ -31,12 +31,20 @@ bin_dir.mkdir(exist_ok=True)
 stub = bin_dir / 'hyprctl'
 stub.write_text('#!/bin/sh\n# Read-only style-query fixture for offline native rendering.\nprintf \'{"int":0,"custom":"5 5 5 5"}\\n\'\n')
 stub.chmod(0o700)
+# Production deliberately binds /usr/bin/hyprctl. Point only the ignored staged
+# backend at this absolute fixture; never add a runtime environment override.
+staged_session = plugin / 'backend/session.py'
+staged_session.write_text(staged_session.read_text().replace(
+    '"/usr/bin/hyprctl"', repr(str(stub))))
 env = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software', QSG_RHI_BACKEND='software',
            QT_QPA_PLATFORMTHEME='generic', QT_QUICK_CONTROLS_STYLE='Basic', XDG_CURRENT_DESKTOP='NONE',
+           QML_DISABLE_DISK_CACHE='1',
            DBUS_SESSION_BUS_ADDRESS='unix:path=' + str(runtime / 'no-session-bus'),
            XDG_RUNTIME_DIR=str(runtime), HYPRLAND_INSTANCE_SIGNATURE='keyboard-settings-offline-preview',
            XDG_CONFIG_HOME=str(runtime / 'config'), XDG_STATE_HOME=str(runtime / 'state'),
-           KEYBOARD_PREVIEW_OUTPUT=str(out), PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
+           KEYBOARD_PREVIEW_OUTPUT=str(out),
+           KEYBOARD_PROCESS_FIXTURE=str(root / 'tests/process_fixture.py'),
+           PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('DISPLAY', None)
 measurements = {}
@@ -85,7 +93,7 @@ rss_growth = finished.get('rssKiB', 0) - baseline.get('rssKiB', 0)
 fd_growth = finished.get('fileDescriptors', 0) - baseline.get('fileDescriptors', 0)
 log += f'NATIVE_RESOURCE_HEALTH rssGrowthKiB={rss_growth} fdGrowth={fd_growth}\n'
 
-helper = str(staging / 'plugin/backend/keyboard_settings.py').encode()
+helper = str(staging / 'plugin/backend/process_supervisor.py').encode()
 orphans = []
 for _ in range(20):
     orphans = []
@@ -107,8 +115,9 @@ markers = ('NATIVE_PREVIEW_OK', 'NATIVE_INTERACTION_OK', 'NATIVE_FLAG_OK', 'NATI
            'NATIVE_TOOLTIPS_OK', 'NATIVE_SEPARATOR_OK', 'NATIVE_UNRESOLVED_OK',
            'NATIVE_DIRECT_EDIT_OK', 'NATIVE_DEFAULT_LAYOUT_OK', 'NATIVE_BACKEND_HEALTH_OK',
            'NATIVE_LONGEVITY_OK', 'NATIVE_SEARCH_HEALTH_OK', 'NATIVE_RESOURCE_HEALTH',
-           'NATIVE_ORPHAN_OK', 'NATIVE_TEST_TOTALS')
-if (timed_out or returncode or not baseline or not finished or rss_growth > 10240 or fd_growth > 0
+           'NATIVE_GUARDED_PROCESS_OK', 'NATIVE_ORPHAN_OK', 'NATIVE_TEST_TOTALS')
+ipc_only_exit = returncode == 1 and 'Failed to start IPC server' in log
+if (timed_out or (returncode and not ipc_only_exit) or not baseline or not finished or rss_growth > 10240 or fd_growth > 0
         or any(marker not in log for marker in markers)
         or any(t in log for t in ('TypeError:', 'ReferenceError:', 'Unable to assign', 'Failed to load', 'FAIL!', 'NATIVE_TEST_FAILED'))):
     raise SystemExit(1)

@@ -12,9 +12,22 @@ Scope {
     property bool capturesComplete: false
     property int dismissCount: 0
     property var pages: ["picker", "editor", "search"]
+    property bool guardDone: false
+    property bool guardTransportFailure: false
+    property string guardOutput: ""
+    Plugin.HelperProcess {
+        id: guardedProcess
+        supervisorPath: Quickshell.env("KEYBOARD_PROCESS_FIXTURE")
+        onFinished: function(output, transportFailure, error) {
+            preview.guardOutput = output
+            preview.guardTransportFailure = transportFailure
+            preview.guardDone = true
+        }
+    }
     TestCase {
         name: "KeyboardPicker"
         when: preview.capturesComplete
+        SignalSpy { id: backendActionSpy; target: Plugin.Backend; signalName: "actionFinished" }
         function init() {
             fake.state = Object.assign({}, fake.state, {layouts: fake.baseLayouts, configuredLayouts: fake.baseLayouts,
                 shortcut: "both-alt", configuredShortcut: "both-alt", pendingRestart: false, active: 1,
@@ -52,6 +65,79 @@ Scope {
         function test_helper_location() {
             verify(Plugin.Backend.helper.startsWith("/"), "The helper must resolve to a real filesystem path")
             console.log("NATIVE_HELPER_PATH_OK", Plugin.Backend.helper)
+        }
+        function test_transport_failures_are_unconfirmed() {
+            let backend = Plugin.Backend
+            compare(backend.resultOutcome({actionOk: false, actionTransportOk: false}, true), "unconfirmed")
+            compare(backend.resultOutcome({actionOk: true, actionTransportOk: true}, false), "unconfirmed")
+            compare(backend.resultOutcome({actionOk: false, actionTransportOk: true}, true), "rejected")
+            compare(backend.resultOutcome({actionOk: true, actionTransportOk: true}, true), "committed")
+        }
+        function test_mutation_transport_failure_finishes_only_after_readback() {
+            let backend = Plugin.Backend
+            tryVerify(() => !backend.busy, 5000)
+            backendActionSpy.clear()
+            let requestId = 900001
+            backend.activeRequest = {id: requestId, name: "save", baseRevision: "fixture",
+                requestedLayouts: ["us/"], actionOk: false, actionTransportOk: false,
+                actionData: null, actionError: "The mutation timed out."}
+            backend.awaitingReadback = true
+            backend.startQuery(requestId)
+            tryCompare(backendActionSpy, "count", 1, 5000)
+            let result = backendActionSpy.signalArguments[0][0]
+            compare(result.id, requestId)
+            compare(result.outcome, "unconfirmed")
+            verify(!result.ok)
+            compare(result.error, "The mutation timed out.")
+            compare(backend.activeRequest, null)
+            verify(!backend.awaitingReadback)
+            verify(backend.stateFresh)
+        }
+        function runGuard(action, timeout) {
+            preview.guardDone = false
+            preview.guardTransportFailure = false
+            preview.guardOutput = ""
+            verify(guardedProcess.start(action, {}, timeout))
+            tryVerify(() => preview.guardDone, 5000)
+        }
+        function test_guarded_process_bounds_deadlines_and_reuse() {
+            let fixture = guardedProcess.supervisorPath
+            guardedProcess.supervisorPath = "/definitely/missing/keyboard-helper.py"
+            runGuard("missing", 1000)
+            verify(preview.guardTransportFailure)
+            guardedProcess.supervisorPath = fixture
+            runGuard("stdout-flood", 1000)
+            verify(preview.guardTransportFailure)
+            runGuard("stderr-flood", 1000)
+            verify(preview.guardTransportFailure)
+            runGuard("malformed", 1000)
+            verify(!preview.guardTransportFailure)
+            let malformed = Plugin.Backend.reply(preview.guardOutput, false, "", false)
+            verify(!malformed.ok)
+            verify(malformed.transportFailure)
+            runGuard("hang", 50)
+            verify(preview.guardTransportFailure)
+            runGuard("after-timeout", 1000)
+            verify(!preview.guardTransportFailure)
+            compare(JSON.parse(preview.guardOutput).data.fixture, "after-timeout")
+            console.log("NATIVE_GUARDED_PROCESS_OK")
+        }
+        function test_guarded_process_ignores_stale_generation_timers() {
+            preview.guardDone = false
+            preview.guardTransportFailure = false
+            preview.guardOutput = ""
+            verify(guardedProcess.start("slow", {}, 1000))
+            let stale = guardedProcess.activeGeneration - 1
+            guardedProcess.deadline.generation = stale
+            guardedProcess.deadline.interval = 20
+            guardedProcess.deadline.restart()
+            guardedProcess.killer.generation = stale
+            guardedProcess.killer.interval = 20
+            guardedProcess.killer.restart()
+            tryVerify(() => preview.guardDone, 5000)
+            guardedProcess.killer.interval = 2000
+            verify(!preview.guardTransportFailure)
+            compare(JSON.parse(preview.guardOutput).data.fixture, "slow")
         }
         function test_backend_failure_and_refresh_coalescing() {
             let backend = Plugin.Backend

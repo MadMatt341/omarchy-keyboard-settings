@@ -6,6 +6,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,9 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.catalog import SettingsError
-from backend.deferred import (DATA_HEADER, LOADER, MARKER, parse as parse_deferred,
-                              render as render_deferred, render_rows)
-from backend.session import Paths, Session, atomic, encoded
+from backend.deferred import (BETA1_LOADER_SHA256, DATA_HEADER, LOADER, PROMOTER,
+                              parse as parse_deferred, render as render_deferred,
+                              render_rows)
+from backend.session import Paths, Session, atomic, encoded, path_present
 from tools.install import ID, STOCK, location, replace, tree_hash
 
 
@@ -34,10 +36,6 @@ def _inputs(source=ROOT):
     return paths, shell, target, receipt, Path(source)
 
 
-def _blob(path):
-    return path.read_bytes() if path.exists() else None
-
-
 def _restore(path, content):
     if content is None:
         path.unlink(missing_ok=True)
@@ -47,34 +45,42 @@ def _restore(path, content):
 
 def _loader_plan(paths):
     """Plan a safe migration from embedded Lua to strict static keyboard data."""
-    current = _blob(paths.override)
-    if current not in (None, LOADER) and not current.startswith(MARKER.encode()):
+    current = paths.owned_blob(paths.override)
+    old_loader = (current is not None
+                  and hashlib.sha256(current).hexdigest() == BETA1_LOADER_SHA256)
+    if current not in (None, LOADER) and not old_loader:
         raise SettingsError("The saved keyboard override is not owned by this picker.")
+    current_promoter = paths.owned_blob(paths.promoter)
+    if current_promoter not in (None, PROMOTER):
+        raise SettingsError("The saved keyboard promotion helper is not owned by this picker.")
 
     decoded = {}
     for path in (paths.active, paths.pending):
-        if path.exists():
+        content = paths.owned_blob(path)
+        if content is not None:
             try:
-                decoded[path] = parse_deferred(path.read_bytes())
+                decoded[path] = parse_deferred(content)
             except (OSError, ValueError) as exc:
                 raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before activation.") from exc
 
     if len(decoded) == 1:
         raise SettingsError("The keyboard data is incomplete. Recover it before activation.")
 
-    complete = (current == LOADER and len(decoded) == 2
-                and all(_blob(path).startswith(DATA_HEADER) for path in decoded))
+    complete = (current == LOADER and current_promoter == PROMOTER and len(decoded) == 2
+                and all(paths.owned_blob(path).startswith(DATA_HEADER) for path in decoded))
     if complete:
-        return {}, _blob(paths.profile)
+        return {}, paths.owned_blob(paths.profile)
 
-    profile_blob = _blob(paths.profile)
+    profile_blob = paths.owned_blob(paths.profile)
     if len(decoded) == 2:
         different = decoded[paths.active] != decoded[paths.pending]
         session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
         if different and not session:
             raise SettingsError("Refresh the fixed keyboard loader from the active Hyprland session.")
-        active_blob, pending_blob = _blob(paths.active), _blob(paths.pending)
+        active_blob = paths.owned_blob(paths.active)
+        pending_blob = paths.owned_blob(paths.pending)
         desired = {
+            paths.promoter: PROMOTER,
             paths.active: (active_blob if active_blob.startswith(DATA_HEADER)
                            else render_rows(decoded[paths.active], session)),
             # Rebind a distinct pending edit to the session performing the
@@ -84,8 +90,8 @@ def _loader_plan(paths):
                             else render_rows(decoded[paths.pending], session)),
             paths.override: LOADER,
         }
-        return ({path: (_blob(path), content) for path, content in desired.items()
-                 if _blob(path) != content}, profile_blob)
+        return ({path: (paths.owned_blob(path), content) for path, content in desired.items()
+                 if paths.owned_blob(path) != content}, profile_blob)
 
     try:
         saved = json.loads(profile_blob) if profile_blob is not None else {"profiles": {}}
@@ -104,11 +110,12 @@ def _loader_plan(paths):
         data = render_deferred(saved)
     except ValueError as exc:
         raise SettingsError("The saved keyboard profile needs manual review before activation.") from exc
-    desired = {paths.active: data, paths.pending: data, paths.override: LOADER}
-    if _blob(paths.profile) != profile_blob:
+    desired = {paths.promoter: PROMOTER, paths.active: data,
+               paths.pending: data, paths.override: LOADER}
+    if paths.owned_blob(paths.profile) != profile_blob:
         raise SettingsError("The saved keyboard state changed. Run activation again.")
-    return ({path: (_blob(path), content) for path, content in desired.items()
-             if _blob(path) != content}, profile_blob)
+    return ({path: (paths.owned_blob(path), content) for path, content in desired.items()
+             if paths.owned_blob(path) != content}, profile_blob)
 
 
 def activate(apply=False, source=ROOT):
@@ -119,7 +126,7 @@ def activate(apply=False, source=ROOT):
         raise SettingsError("The installed plugin is not Git-managed. Use the documented migration first.")
     before = shell.read_bytes()
     settings = json.loads(before)
-    receipt_before = _blob(receipt)
+    receipt_before = paths.owned_blob(receipt)
     if receipt_before is not None:
         if receipt.is_symlink():
             raise SettingsError("The activation receipt must be a regular private state file.")
@@ -138,18 +145,18 @@ def activate(apply=False, source=ROOT):
         if not apply or not loader_plan:
             return
         with paths.lock():
-            if paths.transaction.exists():
+            if path_present(paths.transaction):
                 raise SettingsError("Recover the pending keyboard file update before activation.")
-            if shell.read_bytes() != before or _blob(receipt) != receipt_before:
+            if shell.read_bytes() != before or paths.owned_blob(receipt) != receipt_before:
                 raise SettingsError("The activation state changed. Run activation again.")
-            if _blob(paths.profile) != loader_profile or any(_blob(path) != previous
+            if paths.owned_blob(paths.profile) != loader_profile or any(paths.owned_blob(path) != previous
                                                             for path, (previous, _) in loader_plan.items()):
                 raise SettingsError("The saved keyboard state changed. Run activation again.")
             try:
                 for path, (_, content) in loader_plan.items():
                     atomic(path, content)
             except Exception:
-                for path, (previous, _) in loader_plan.items():
+                for path, (previous, _) in reversed(loader_plan.items()):
                     _restore(path, previous)
                 raise
         print("Refreshed the fixed keyboard loader. The current keyboard layout was unchanged.")
@@ -165,11 +172,11 @@ def activate(apply=False, source=ROOT):
     if not apply:
         return
     with paths.lock():
-        if paths.transaction.exists():
+        if path_present(paths.transaction):
             raise SettingsError("Recover the pending keyboard file update before activation.")
         if shell.read_bytes() != before:
             raise SettingsError("The bar changed. Run activation again.")
-        if _blob(paths.profile) != loader_profile or any(_blob(path) != previous
+        if paths.owned_blob(paths.profile) != loader_profile or any(paths.owned_blob(path) != previous
                                                         for path, (previous, _) in loader_plan.items()):
             raise SettingsError("The saved keyboard state changed. Run activation again.")
         token = secrets.token_hex(12)
@@ -188,7 +195,7 @@ def activate(apply=False, source=ROOT):
             receipt.unlink(missing_ok=True)
             if shell.exists() and shell.read_bytes() == written:
                 atomic(shell, before)
-            for path, (previous, _) in loader_plan.items():
+            for path, (previous, _) in reversed(loader_plan.items()):
                 _restore(path, previous)
             raise
     print("Activated the Git-managed plugin. Omarchy will hot-reload the bar.")
@@ -198,7 +205,7 @@ def prepare_remove(apply=False, keep_settings=False, source=ROOT):
     paths, shell, target, receipt, _ = _inputs(source)
     if not receipt.is_file() or receipt.is_symlink():
         raise SettingsError("There is no activation receipt to restore safely.")
-    saved = json.loads(receipt.read_text())
+    saved = json.loads(paths.owned_blob(receipt, missing_ok=False))
     if saved.get("schema") not in (None, 2, 3) or "originalEntry" not in saved:
         raise SettingsError("The activation receipt format needs manual review.")
     if saved.get("schema") is None and saved.get("files"):
@@ -229,13 +236,17 @@ def prepare_remove(apply=False, keep_settings=False, source=ROOT):
     print("Saved keyboard settings would be retained." if keep_settings else
           "Saved keyboard settings would be backed up and removed.")
     print("The Git checkout would remain for `omarchy plugin remove` to delete.")
+    if keep_settings:
+        paths.check_retained_state(allow_profile_only=saved.get("schema") is None)
     if not apply:
         return
     with paths.lock():
-        if paths.transaction.exists():
+        if path_present(paths.transaction):
             raise SettingsError("Recover the pending keyboard file update before removal.")
         if shell.read_bytes() != before:
             raise SettingsError("The bar changed. Run prepare-remove again.")
+        if keep_settings:
+            paths.check_retained_state(allow_profile_only=saved.get("schema") is None)
         written = json.dumps(updated, indent=2).encode() + b"\n"
         atomic(shell, written)
         try:

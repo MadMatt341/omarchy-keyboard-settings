@@ -53,6 +53,7 @@ def collect(environ=None, home=None):
                   "activity": _present(root / "activity.json"),
                   "activeData": _present(root / "active-v1.conf"),
                   "pendingData": _present(root / "pending-v1.conf"),
+                  "promotionHelper": _present(root / "promote-v1.py"),
                   "deferredLoader": _present(state / "omarchy/toggles/hypr/madmatt-keyboard-settings.lua"),
                   "pendingTransaction": _present(root / "transaction.json"),
                   "activationReceipt": _present(root / "installation.json")},

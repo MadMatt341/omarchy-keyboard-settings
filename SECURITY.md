@@ -15,13 +15,27 @@ Hyprland, Quickshell or XKB.
 ## Security boundary
 
 Omarchy plugins run unsandboxed with the current user's permissions. This plugin
-starts its bundled Python helper with an argv array, reads the installed XKB
-registry and Hyprland device metadata, and writes only its documented state,
-cache and fixed keyboard loader. It does not use a network service, sudo, pip
-packages, raw input events or typed text. The fixed loader uses a constant shell
-command during new-session promotion only to set mode `0600` and sync its state
-file; paths are single-quoted and no device or user-entered value enters that
-command.
+starts its bundled supervisor with an argv array, a cleared environment and fixed
+`/usr/bin` executables. QML incrementally caps captured output and enforces a
+deadline; a process-group watchdog removes descendants after completion, timeout,
+shell reload or crash. The supervisor separately bounds `hyprctl` output and
+suppresses incidental helper output. It reads the installed XKB registry and
+Hyprland device metadata and writes only its documented state, cache and fixed
+keyboard loader. It does not use a network service, sudo, pip packages, raw input
+events or typed text.
+
+The fixed loader performs no direct file reads or writes. During new-session
+promotion it invokes a private exact-copy Python helper through absolute
+`timeout` and `python3` paths, reads at most 64 KiB plus a fixed success prefix,
+and otherwise emits no declarations. The helper opens private owned regular state
+through no-follow directory-relative descriptors, uses a nonblocking lock and an
+unpredictable same-directory temporary descriptor, verifies snapshots and
+readback, then atomically replaces and syncs active data. Symlinks, hardlinks,
+special files, oversized data and changed snapshots are never consumed. Unsafe
+active, pending or lock objects cause the helper to emit no declarations; a
+malformed private regular pending file may fall back to already validated active
+data. The parsed-XKB cache is also read through a private, bounded, no-follow
+path and is rebuilt safely when it is absent or unusable.
 
 Edits are validated with libxkbcommon and serialized under a bounded lock. Before
 removing an active layout, the helper switches every verified typing interface to

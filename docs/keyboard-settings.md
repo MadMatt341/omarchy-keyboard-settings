@@ -56,20 +56,28 @@ the code immediately. `animate` on the bar entry and
 ## UI → helper contract
 
 `Keyboard.qml` hosts `Indicator` and `Picker` in shared Omarchy panels. The
-`Backend.qml` singleton launches short-lived Python processes:
+`Backend.qml` singleton launches every short-lived action through the bundled
+supervisor:
 
 ```text
-python3 backend/keyboard_settings.py ACTION JSON_OBJECT
+/usr/bin/python3 -I -B backend/process_supervisor.py ACTION JSON_OBJECT
 success: {"ok": true, "data": ...}
 failure: {"ok": false, "error": "..."} with nonzero exit status
+transport failure: {"ok": false, "transportFailure": true, "error": "..."}
 ```
 
-QML passes arguments as an argv list, not shell text. The helper disables Python
-bytecode before importing its modules because the installed plugin tree is watched.
+QML passes arguments as an argv list, not shell text, clears the inherited
+environment and retains only required HOME/XDG/session/locale values with
+`PATH=/usr/bin`. The supervisor disables Python bytecode, creates a dedicated
+process group and watchdog before dispatch, suppresses incidental output and
+serializes one response of at most 192 KiB. QML consumes chunks without a line
+buffer, caps combined output at 256 KiB and applies 5-second animation, 10-second
+catalog and 30-second status/mutation deadlines followed by TERM and KILL.
 
 | Action | Request fields | Behavior |
 | --- | --- | --- |
 | `catalog` | None | Returns installed layout/variant rows and shortcut choices. |
+| `animations` | None | Returns the compositor animation setting for reduced-motion feedback. |
 | `status` | Optional `eventDevice` | Returns runtime and saved layout state; writes only the observation cache. Recovers an interrupted owned-file save first. |
 | `choose` | `device`, `revision` | Saves a certain device group as preferred. |
 | `switch` | `index`, `revision` | Switches an already loaded runtime layout and verifies all typing interfaces. |
@@ -90,7 +98,7 @@ is false after the live transaction completes. `active = -1` means no verified
 source.
 
 `revision` hashes device identities/configuration, tracked Lua sources, the saved
-profile, fixed loader and active/pending data; it excludes active-layout changes. `eventDevice`
+profile, fixed loader, exact promotion helper and active/pending data; it excludes active-layout changes. `eventDevice`
 identifies a recent `activelayout` event and is consumed once. Hyprland's `main`
 flag is never used to select a typing keyboard.
 
@@ -108,6 +116,12 @@ queries keep the last confirmed rows visible but stale and disable every mutatio
 until a successful refresh. Compact local operation logs record the request ID,
 action phase/outcome and XKB layout IDs, but never device names or raw helper
 requests.
+
+Every mutation still performs its status readback. Timeout, overflow, failed
+startup and malformed or missing output are transport failures and therefore
+produce `unconfirmed`, even if the readback succeeds. A validated helper error
+plus good readback is `rejected`; only validated success plus good readback is
+`committed`.
 
 ## Validation and live save
 
@@ -169,10 +183,15 @@ The active and fallback files retain a compositor-session field for safe
 new-session promotion. Ordinary multi-layout saves write them identically; the
 single-layout compatibility mode intentionally keeps them distinct until the next
 session. In either case the first logical row remains the login default. The
-loader's promotion path uses a private temporary file, file sync, byte readback,
-atomic rename and directory sync. Hyprland owns child-process exit handling, so
-the loader verifies maintenance commands through a success token on their output
-rather than trusting Lua's unreliable child exit status.
+loader itself performs no state-file I/O. It invokes the installed promotion
+helper through absolute `/usr/bin/timeout` and `/usr/bin/python3` paths, reads only
+a fixed success prefix plus at most 64 KiB, and parses strict bounded records.
+The helper pins the private state directory, rejects linked/special/non-private
+files, takes the lock nonblockingly, rereads state, then writes through a random
+exclusive no-follow descriptor with file sync, descriptor readback, snapshot
+revalidation, atomic replacement and directory sync. Invalid input or an unsafe
+active, pending or lock object emits no declarations; lock contention and a
+malformed private regular pending file retain valid current active data.
 
 Ordinary picker switching is separate. It calls only `switchxkblayout` for layouts
 already loaded by the running compositor, verifies each typing interface, and
@@ -193,8 +212,9 @@ restores prior indices if a partial switch fails.
 | `ROOT/backups/<token>/recovery.json` | Previous and intended owned-file contents for recovery. |
 | `ROOT/pending-v1.conf` | Validated, non-executable next-session data plus the saving session identifier. It contains the true logical single layout while compatibility mode keeps a duplicated live pair. |
 | `ROOT/active-v1.conf` | Validated, non-executable device data read by the fixed loader and replaced atomically by a live save. It may contain the owned duplicated physical pair for the current session. |
+| `ROOT/promote-v1.py` | Exact private copy of the bounded login-time promotion helper. It is retained with `--keep-settings` because the fixed loader remains active without the UI checkout. |
 | `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Fixed loader installed during activation. It parses strict hex records and retains a session-bound promotion path for compatible older pending data. |
-| `CACHE/omarchy/keyboard-settings/catalog-v1.json` | Atomic parsed-XKB cache, keyed by the SHA-256 hashes of the installed base and extras registries. Corruption or source changes rebuild it. |
+| `CACHE/omarchy/keyboard-settings/catalog-v1.json` | Atomic parsed-XKB cache, keyed by the SHA-256 hashes of the installed base and extras registries. Reads are private, bounded and no-follow; corruption, unsafe paths or source changes rebuild it. |
 | `ROOT/installation.json` | External activation receipt with the exact original bar entry, section/index and backup reference. It survives Git updates and generic checkout removal. |
 | `ROOT/lifecycle/backups/<token>/shell.json` | Bar backup created by Git activation. |
 | `ROOT/lifecycle/prepared-removals/<token>/installation.json` | Archived receipt after explicit preparation for removal. |
@@ -210,11 +230,13 @@ by `tools/package_support.py`; every stage starts empty.
 
 `tools/plugin.py activate` and `prepare-remove` are dry-run by default. Activation
 replaces one stock entry while preserving its settings and center anchor, and
-installs or migrates the fixed loader only when the saved state matches the live
+installs or migrates the promotion helper before the fixed loader only when the saved state matches the live
 keyboard. With an existing receipt, activation becomes an idempotent loader refresh
 that preserves compatible active and fallback configurations. Removal preparation
-restores the stock entry and resets the loader and active/pending data unless
-`--keep-settings` is explicit. Both use the same bounded state lock as settings
+restores the stock entry and resets the loader, promotion helper and active/pending data unless
+`--keep-settings` is explicit. Retention requires the exact current loader and
+helper plus valid active/pending data; incomplete or beta.1 runtime state must be
+reactivated first. Both use the same bounded state lock as settings
 changes, refuse a pending transaction or concurrent bar edit, and keep recovery
 evidence outside the checkout. Omarchy remains responsible for cloning, updating
 and deleting the Git checkout. `tools/install.py` remains only for migration and

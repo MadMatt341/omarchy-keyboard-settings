@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private JSON interface used by the native QML plugin."""
+"""Private JSON command dispatcher used by the supervised native plugin."""
 from pathlib import Path
 import json
 import sys
@@ -12,37 +12,63 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.catalog import Catalog, SettingsError, SHORTCUTS
-from backend.session import Session
+from backend.session import Hyprland, Session
 
 
-def main():
-    action = sys.argv[1] if len(sys.argv) > 1 else "status"
-    request = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
+def dispatch(action, request):
+    """Run one validated action and return its JSON-serializable data."""
     if not isinstance(request, dict):
         raise SettingsError("Invalid request.")
     if action == "catalog":
-        data = {"layouts": Catalog().layouts, "shortcuts": [{"value": k, "label": v[0]} for k, v in SHORTCUTS.items()]}
-    else:
-        session = Session()
-        session.recover_pending()
-        if action == "status":
-            data = session.status(request.get("eventDevice", ""))
-        elif action == "choose":
-            data = session.choose(request["device"], request["revision"])
-        elif action == "switch":
-            data = session.switch(request["index"], request["revision"])
-        elif action == "save":
-            data = session.save(request["layouts"], request["shortcut"], request["revision"],
-                                request.get("eventDevice", ""), request.get("expectedActiveId"))
-        else:
-            raise SettingsError("Unknown request.")
-    print(json.dumps({"ok": True, "data": data}, ensure_ascii=False))
+        return {"layouts": Catalog().layouts,
+                "shortcuts": [{"value": key, "label": value[0]}
+                              for key, value in SHORTCUTS.items()]}
+    if action == "animations":
+        return {"enabled": Hyprland().animations()}
+
+    session = Session()
+    session.recover_pending()
+    if action == "status":
+        return session.status(request.get("eventDevice", ""))
+    if action == "choose":
+        return session.choose(request["device"], request["revision"])
+    if action == "switch":
+        return session.switch(request["index"], request["revision"])
+    if action == "save":
+        return session.save(request["layouts"], request["shortcut"], request["revision"],
+                            request.get("eventDevice", ""), request.get("expectedActiveId"))
+    raise SettingsError("Unknown request.")
+
+
+def response(action, request):
+    """Mirror the established domain-error response without leaking internals."""
+    try:
+        return {"ok": True, "data": dispatch(action, request)}
+    except (SettingsError, ValueError, KeyError, OSError) as exc:
+        message = (str(exc) if isinstance(exc, SettingsError) else
+                   "Keyboard settings could not complete the request. "
+                   "Your recovery record has been retained.")
+        return {"ok": False, "error": message}
+
+
+def parse_request(arguments):
+    action = arguments[0] if arguments else "status"
+    request = json.loads(arguments[1]) if len(arguments) > 1 else {}
+    return action, request
+
+
+def main(arguments=None):
+    arguments = sys.argv[1:] if arguments is None else arguments
+    try:
+        action, request = parse_request(arguments)
+        value = response(action, request)
+    except (ValueError, UnicodeError):
+        value = {"ok": False, "error":
+                 "Keyboard settings could not complete the request. "
+                 "Your recovery record has been retained."}
+    print(json.dumps(value, ensure_ascii=False))
+    return 0 if value.get("ok") else 1
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (SettingsError, ValueError, KeyError, OSError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc) if isinstance(exc, SettingsError) else
-                          "Keyboard settings could not complete the request. Your recovery record has been retained."}))
-        sys.exit(1)
+    raise SystemExit(main())

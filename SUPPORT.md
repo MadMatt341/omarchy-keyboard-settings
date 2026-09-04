@@ -23,8 +23,9 @@ For typing problems, describe the expected and observed characters in your own
 words; do not attach captured key events.
 
 Do not post raw `settings.json`, `activity.json`, `transaction.json`,
-`active-v1.conf`, `pending-v1.conf`, generated Lua, `hyprctl devices` output or
-helper `status` output. Those may reveal keyboard device names, configured
+`active-v1.conf`, `pending-v1.conf`, generated Lua, the installed
+`promote-v1.py` helper, `hyprctl devices` output or helper `status` output. Those
+may reveal keyboard device names, configured
 layouts, paths or other local configuration. The plugin never records typed text,
 and a useful support report should not contain it. Remove usernames, home paths,
 device serial numbers and unrelated configuration from anything you attach.
@@ -39,6 +40,10 @@ Common recovery paths:
   `tools/plugin.py activate --apply`. Legacy saved and active data that differ
   must be reconciled before migration; follow the exact error rather than deleting
   either file.
+- If activation reports an unsafe loader, promotion helper, lock or state file,
+  leave it in place for review. The plugin deliberately refuses symlinks,
+  hardlinks, special files, non-private modes and oversized state rather than
+  repairing an ambiguous path.
 - If a generic disable removed the widget, run `tools/plugin.py prepare-remove`
   from the installed checkout. It can restore the stock entry from the external
   receipt.

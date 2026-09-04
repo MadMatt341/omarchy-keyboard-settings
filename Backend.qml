@@ -1,6 +1,5 @@
 pragma Singleton
 import QtQuick
-import Quickshell.Io
 import Quickshell.Hyprland
 
 QtObject {
@@ -27,7 +26,7 @@ QtObject {
     readonly property bool operationActive: activeRequest !== null
     property bool querySucceeded: false
     property bool animationsEnabled: true
-    property string helper: decodeURIComponent(Qt.resolvedUrl("backend/keyboard_settings.py").toString().replace(/^file:\/\//, ""))
+    property string helper: decodeURIComponent(Qt.resolvedUrl("backend/process_supervisor.py").toString().replace(/^file:\/\//, ""))
     readonly property var current: state.active >= 0 && state.active < state.layouts.length ? state.layouts[state.active] : null
     signal actionFinished(var result)
     signal refreshed(bool ok)
@@ -57,6 +56,10 @@ QtObject {
         if (outcome) parts.push("outcome=" + outcome)
         console.log("keyboard-settings-op " + parts.join(" "))
     }
+    function resultOutcome(request, readbackOk) {
+        if (!request.actionTransportOk || !readbackOk) return "unconfirmed"
+        return request.actionOk ? "committed" : "rejected"
+    }
 
     function refresh() {
         if (busy) { pending = true; return }
@@ -67,12 +70,13 @@ QtObject {
         querySucceeded = false
         queryReplySeen = false
         queryOwnerId = ownerId || 0
-        query.command = ["python3", helper, "status", JSON.stringify({eventDevice: eventDevice})]
         // The helper persists a verified source across shell reloads. Send an
         // event once; resending an old name would override a later observation.
+        let reportedDevice = eventDevice
         eventDevice = ""
         queryExpected = true
-        query.running = true
+        if (!query.start("status", {eventDevice: reportedDevice}, 30000))
+            Qt.callLater(root.finishQuery)
     }
     function request(name, args, revision) {
         if (busy || !stateFresh) {
@@ -92,12 +96,11 @@ QtObject {
             requestedLayouts = [state.layouts[requestArgs.index].id]
         activeRequest = {id: id, name: name, baseRevision: requestArgs.revision,
             requestedLayouts: requestedLayouts, actionOk: false, actionData: null,
-            actionError: ""}
+            actionError: "", actionTransportOk: false}
         traceOperation(activeRequest, "request", state)
         actionReplySeen = false
         actionExpected = true
-        action.command = ["python3", helper, name, JSON.stringify(requestArgs)]
-        action.running = true
+        if (!action.start(name, requestArgs, 30000)) Qt.callLater(root.finishAction)
         return id
     }
     function switchTo(index, revision) { return request("switch", {index: index}, revision) }
@@ -106,65 +109,69 @@ QtObject {
         if (expectedActiveId !== undefined) args.expectedActiveId = expectedActiveId
         return request("save", args, revision)
     }
-    function reply(text) {
+    function reply(text, transportFailure, transportError, publishError) {
+        let report = publishError !== false
+        if (transportFailure) {
+            let message = transportError || "The keyboard did not respond. Try again."
+            if (report) error = message
+            return {ok: false, transportFailure: true, error: message}
+        }
         try {
             let value = JSON.parse(text)
-            if (!value.ok) error = value.error || "The keyboard did not respond."
+            if (!value || typeof value.ok !== "boolean") throw new Error("invalid response")
+            if (value.transportFailure) {
+                let message = value.error || "The keyboard did not respond. Try again."
+                if (report) error = message
+                return {ok: false, transportFailure: true, error: message}
+            }
+            if (!value.ok && report) error = value.error || "The keyboard did not respond."
             return value
         } catch (_) {
-            error = "The keyboard did not respond. Try again."
-            return {ok: false}
+            let message = "The keyboard did not respond. Try again."
+            if (report) error = message
+            return {ok: false, transportFailure: true, error: message}
         }
     }
-    Component.onCompleted: { registry.running = true; motion.running = true; refresh() }
-
-    property Process motion: Process {
-        command: ["hyprctl", "-j", "getoption", "animations.enabled"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: {
-                try { root.animationsEnabled = JSON.parse(text).int !== 0 } catch (_) {}
-            }
-        }
+    Component.onCompleted: {
+        registry.start("catalog", {}, 10000)
+        motion.start("animations", {}, 5000)
+        refresh()
     }
 
-    property Process query: Process {
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: {
-                let value = root.reply(text)
-                root.queryReplySeen = true
-                root.querySucceeded = value.ok
-                if (value.ok) root.state = value.data
-            }
-        }
-        onRunningChanged: if (!running && root.queryExpected) Qt.callLater(root.finishQuery)
-    }
-    property Process registry: Process {
-        command: ["python3", root.helper, "catalog"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: {
-                let value = root.reply(text)
-                if (value.ok) { root.catalog = value.data.layouts; root.shortcuts = value.data.shortcuts }
-            }
+    property HelperProcess motion: HelperProcess {
+        onFinished: function(text, transportFailure, transportError) {
+            let value = root.reply(text, transportFailure, transportError, false)
+            if (value.ok && value.data && typeof value.data.enabled === "boolean")
+                root.animationsEnabled = value.data.enabled
         }
     }
-    property Process action: Process {
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: {
-                let value = root.reply(text)
-                root.actionReplySeen = true
-                if (root.activeRequest) root.activeRequest = Object.assign({}, root.activeRequest, {
-                    actionOk: value.ok, actionData: value.data || null,
-                    actionError: value.ok ? "" : (value.error || root.error)
-                })
-                root.traceOperation(root.activeRequest,
-                    value.ok ? "action-ok" : "action-rejected", root.state)
-            }
+
+    property HelperProcess query: HelperProcess {
+        onFinished: function(text, transportFailure, transportError) {
+            let value = root.reply(text, transportFailure, transportError, true)
+            root.queryReplySeen = true
+            root.querySucceeded = value.ok
+            if (value.ok) root.state = value.data
+            Qt.callLater(root.finishQuery)
         }
-        onRunningChanged: if (!running && root.actionExpected) {
+    }
+    property HelperProcess registry: HelperProcess {
+        onFinished: function(text, transportFailure, transportError) {
+            let value = root.reply(text, transportFailure, transportError, false)
+            if (value.ok) { root.catalog = value.data.layouts; root.shortcuts = value.data.shortcuts }
+        }
+    }
+    property HelperProcess action: HelperProcess {
+        onFinished: function(text, transportFailure, transportError) {
+            let value = root.reply(text, transportFailure, transportError, true)
+            root.actionReplySeen = true
+            if (root.activeRequest) root.activeRequest = Object.assign({}, root.activeRequest, {
+                actionOk: value.ok, actionTransportOk: !value.transportFailure,
+                actionData: value.data || null,
+                actionError: value.ok ? "" : (value.error || root.error)
+            })
+            root.traceOperation(root.activeRequest, value.ok ? "action-ok" :
+                (value.transportFailure ? "action-unconfirmed" : "action-rejected"), root.state)
             root.actionExpected = false
             Qt.callLater(root.finishAction)
         }
@@ -191,8 +198,8 @@ QtObject {
         refreshed(querySucceeded)
         if (owner && activeRequest && activeRequest.id === owner) {
             let request = activeRequest
-            let ok = request.actionOk && querySucceeded
-            let outcome = ok ? "committed" : (!request.actionOk && querySucceeded ? "rejected" : "unconfirmed")
+            let ok = request.actionOk && request.actionTransportOk && querySucceeded
+            let outcome = resultOutcome(request, querySucceeded)
             let resultError = request.actionOk ? (querySucceeded ? "" : error) : request.actionError
             traceOperation(request, querySucceeded ? "readback-ok" : "readback-failed",
                 state, outcome)
@@ -223,7 +230,7 @@ QtObject {
                 root.eventRefresh.restart()
             } else if (event.name === "configreloaded") {
                 root.eventDevice = ""
-                if (!root.motion.running) root.motion.running = true
+                if (!root.motion.running) root.motion.start("animations", {}, 5000)
                 root.eventRefresh.restart()
             }
         }

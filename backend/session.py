@@ -12,19 +12,28 @@ import json
 import os
 import re
 import secrets
+import selectors
+import stat
 import subprocess
 import tempfile
 import time
 
 from .catalog import Catalog, SettingsError
-from .deferred import (LOADER, MARKER, parse as parse_deferred,
-                       render as render_deferred, saved_session)
+from .deferred import (BETA1_LOADER_BYTES, BETA1_LOADER_SHA256, LOADER, PROMOTER,
+                       parse as parse_deferred, render as render_deferred,
+                       saved_session)
+from .deferred_runtime import MAX_DATA_BYTES, UnsafeState, read_path
 from .devices import metadata, resolve, pick, active_index
 from .keymap import validate
 
 FIELDS = ("rules", "model", "layout", "variant", "options")
 OWNED = ("layout", "variant", "options")
 SINGLE_LAYOUT_COMPATIBILITY = "duplicated-single-layout"
+MAX_PROFILE_BYTES = 256 * 1024
+MAX_ACTIVITY_BYTES = 64 * 1024
+MAX_TRANSACTION_BYTES = 1024 * 1024
+MAX_RUNTIME_STDOUT = 256 * 1024
+MAX_RUNTIME_STDERR = 64 * 1024
 
 
 def encoded(data):
@@ -81,6 +90,12 @@ def atomic(path, content):
             os.unlink(temp)
 
 
+def path_present(path):
+    """Treat dangling links as occupied paths, never as an absent owned file."""
+    path = Path(path)
+    return path.exists() or path.is_symlink()
+
+
 class Paths:
     def __init__(self, config=None, state=None, cache=None, lock_timeout=5):
         home = Path.home()
@@ -97,22 +112,70 @@ class Paths:
         self.override = self.state / "omarchy/toggles/hypr/madmatt-keyboard-settings.lua"
         self.active = self.root / "active-v1.conf"
         self.pending = self.root / "pending-v1.conf"
+        self.promoter = self.root / "promote-v1.py"
+        self.lock_file = self.root / "lock"
         self.main = self.config / "hypr/hyprland.lua"
+
+    def limit(self, path):
+        limits = {
+            self.profile: MAX_PROFILE_BYTES,
+            self.activity: MAX_ACTIVITY_BYTES,
+            self.transaction: MAX_TRANSACTION_BYTES,
+            self.active: MAX_DATA_BYTES,
+            self.pending: MAX_DATA_BYTES,
+            self.override: max(len(LOADER), BETA1_LOADER_BYTES),
+            self.promoter: len(PROMOTER),
+        }
+        return limits.get(Path(path), MAX_TRANSACTION_BYTES)
+
+    def owned_blob(self, path, missing_ok=True, comparison_only=False):
+        try:
+            limit = 64 * 1024 if comparison_only and Path(path) in (self.override, self.promoter) else self.limit(path)
+            data = read_path(path, limit, missing_ok=missing_ok)
+            exact_lengths = {
+                self.override: {len(LOADER), BETA1_LOADER_BYTES},
+                self.promoter: {len(PROMOTER)},
+            }
+            allowed = exact_lengths.get(Path(path))
+            if (not comparison_only and data is not None and allowed is not None
+                    and len(data) not in allowed):
+                raise UnsafeState("fixed runtime source has an unexpected length")
+            return data
+        except (OSError, UnsafeState, ValueError) as exc:
+            raise SettingsError(f"Cannot read {Path(path).name}. Recover the saved settings before editing.") from exc
 
     @contextmanager
     def lock(self):
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with (self.root / "lock").open("a") as stream:
+        info = self.root.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                or self.root.is_symlink()):
+            raise SettingsError("The keyboard settings directory needs manual review.")
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            self.root.chmod(0o700)
+        try:
+            fd = os.open(self.lock_file, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
+                         | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        except OSError as exc:
+            raise SettingsError("The keyboard settings lock needs manual review.") from exc
+        try:
+            lock_info = os.fstat(fd)
+            if (not stat.S_ISREG(lock_info.st_mode) or lock_info.st_uid != os.geteuid()
+                    or lock_info.st_nlink != 1):
+                raise SettingsError("The keyboard settings lock needs manual review.")
+            os.fchmod(fd, 0o600)
             deadline = time.monotonic() + self.lock_timeout
             while True:
                 try:
-                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:
                         raise SettingsError("Another keyboard settings action is still running. Try again.")
                     time.sleep(0.02)
             yield
+        finally:
+            os.close(fd)
 
     def sources(self):
         files = list((self.config / "hypr").rglob("*.lua"))
@@ -121,11 +184,12 @@ class Paths:
                 for p in sorted(set(files)) if p != self.override and p.is_file()}
 
     def read(self, path, fallback):
-        if not path.exists():
+        data = self.owned_blob(path)
+        if data is None:
             return copy.deepcopy(fallback)
         try:
-            return json.loads(path.read_text())
-        except (ValueError, OSError) as exc:
+            return json.loads(data)
+        except (ValueError, UnicodeError) as exc:
             raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before editing.") from exc
 
     def check_loader(self, allow_legacy=False):
@@ -140,33 +204,112 @@ class Paths:
             content = Path(filename).read_text()
             if any("kb_file" in line for line in content.splitlines() if not line.lstrip().startswith("--")):
                 raise SettingsError("A custom keymap file needs manual review. The picker will not replace it.")
-        override = self.override.read_bytes() if self.override.exists() else b""
-        legacy = allow_legacy and override.startswith(MARKER.encode())
+        override = self.owned_blob(self.override) or b""
+        legacy = (allow_legacy and override
+                  and hashlib.sha256(override).hexdigest() == BETA1_LOADER_SHA256)
         if override != LOADER and not legacy:
             raise SettingsError("Reactivate the plugin to install its fixed keyboard loader before saving.")
+        if override == LOADER and self.owned_blob(self.promoter) != PROMOTER:
+            raise SettingsError("Reactivate the plugin to install its fixed keyboard loader before saving.")
         for path in (self.active, self.pending) if override == LOADER else ():
-            if path.exists():
-                try:
-                    parse_deferred(path.read_bytes())
-                except (OSError, ValueError) as exc:
-                    raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before editing.") from exc
+            try:
+                data = self.owned_blob(path)
+                if data is not None:
+                    parse_deferred(data)
+            except (OSError, ValueError, SettingsError) as exc:
+                raise SettingsError(f"Cannot read {path.name}. Recover the saved settings before editing.") from exc
+
+    def check_retained_state(self, allow_profile_only=False):
+        """Require a complete current loader set before preserving it without the UI."""
+        runtime = (self.override, self.promoter, self.active, self.pending)
+        if not any(path_present(path) for path in runtime):
+            if allow_profile_only:
+                # Legacy copied installs may have only a profile to retain.
+                self.read(self.profile, {"profiles": {}})
+                return
+            raise SettingsError("Reactivate the plugin before retaining its keyboard loader.")
+        if self.owned_blob(self.override, missing_ok=False) != LOADER:
+            raise SettingsError("Reactivate the plugin before retaining its keyboard loader.")
+        if self.owned_blob(self.promoter, missing_ok=False) != PROMOTER:
+            raise SettingsError("Reactivate the plugin before retaining its promotion helper.")
+        for path in (self.active, self.pending):
+            try:
+                parse_deferred(self.owned_blob(path, missing_ok=False))
+            except (OSError, ValueError, SettingsError) as exc:
+                raise SettingsError(
+                    f"Cannot retain {path.name}. Recover the saved settings before removal."
+                ) from exc
+        self.read(self.profile, {"profiles": {}})
 
 
 class Hyprland:
-    def call(self, *args, json_output=False):
+    @staticmethod
+    def _bounded(command, timeout=8):
         try:
-            result = subprocess.run(["hyprctl", *(["-j"] if json_output else []), *args],
-                                    capture_output=True, text=True, timeout=8, check=False)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       close_fds=True)
+        except OSError as exc:
             raise SettingsError("The desktop did not respond. Your saved settings were not changed.") from exc
+        selector = selectors.DefaultSelector()
+        output = {process.stdout: bytearray(), process.stderr: bytearray()}
+        limits = {process.stdout: MAX_RUNTIME_STDOUT, process.stderr: MAX_RUNTIME_STDERR}
+        deadline = time.monotonic() + timeout
+        try:
+            for stream in output:
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError
+                events = selector.select(remaining)
+                if not events:
+                    raise TimeoutError
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output[key.fileobj].extend(chunk)
+                    if len(output[key.fileobj]) > limits[key.fileobj]:
+                        raise OverflowError
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            returncode = process.wait(timeout=remaining)
+        except (TimeoutError, OverflowError, subprocess.TimeoutExpired) as exc:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise SettingsError("The desktop did not respond. Your saved settings were not changed.") from exc
+        finally:
+            selector.close()
+            process.stdout.close()
+            process.stderr.close()
+        return subprocess.CompletedProcess(command, returncode, bytes(output[process.stdout]),
+                                           bytes(output[process.stderr]))
+
+    def call(self, *args, json_output=False):
+        result = self._bounded(["/usr/bin/hyprctl", *(["-j"] if json_output else []), *args])
         if result.returncode:
             raise SettingsError("The desktop rejected the keyboard request.")
+        try:
+            stdout = result.stdout.decode("utf-8")
+        except UnicodeError as exc:
+            raise SettingsError("The desktop returned an unreadable keyboard response.") from exc
         if json_output:
             try:
-                return json.loads(result.stdout)
+                return json.loads(stdout)
             except ValueError as exc:
                 raise SettingsError("The desktop returned an unreadable keyboard response.") from exc
-        text = result.stdout.strip()
+        text = stdout.strip()
         if args and args[0] in ("switchxkblayout", "reload") and text.lower() not in ("ok", "ok.", ""):
             raise SettingsError("The desktop could not apply the keyboard request.")
         return text
@@ -189,6 +332,9 @@ class Hyprland:
         if self.call("configerrors"):
             raise SettingsError("The desktop reported a configuration error. Restoring the previous setup.")
 
+    def animations(self):
+        return self.call("getoption", "animations.enabled", json_output=True).get("int", 1) != 0
+
 
 class Session:
     def __init__(self, paths=None, hypr=None, records=None):
@@ -199,7 +345,12 @@ class Session:
 
     def single_layout_compatibility(self, group, saved):
         """Recognize only the complete plugin-owned logical-one/physical-two state."""
-        if not group or not self.paths.override.exists() or self.paths.override.read_bytes() != LOADER:
+        try:
+            loader = self.paths.owned_blob(self.paths.override)
+            promoter = self.paths.owned_blob(self.paths.promoter)
+        except SettingsError:
+            return False
+        if not group or loader != LOADER or promoter != PROMOTER:
             return False
         session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
         if not session:
@@ -214,13 +365,13 @@ class Session:
                 or {target.get("name") for target in targets} != set(names)):
             return False
         try:
-            active_data = self.paths.active.read_bytes()
-            pending_data = self.paths.pending.read_bytes()
+            active_data = self.paths.owned_blob(self.paths.active, missing_ok=False)
+            pending_data = self.paths.owned_blob(self.paths.pending, missing_ok=False)
             if saved_session(active_data) != session or saved_session(pending_data) != session:
                 return False
             active = parse_deferred(active_data)
             pending = parse_deferred(pending_data)
-        except (OSError, ValueError):
+        except (OSError, ValueError, SettingsError):
             return False
         active_by_name = {target.get("name"): target for target in active}
         pending_by_name = {target.get("name"): target for target in pending}
@@ -248,6 +399,7 @@ class Session:
         group = pick(groups, saved.get("preferred"))
         revision = digest({"groups": groups_without_active(groups), "sources": self.paths.sources(),
                            "saved": saved, "loader": self.file_blob(self.paths.override),
+                           "promoter": self.file_blob(self.paths.promoter),
                            "active": self.file_blob(self.paths.active),
                            "pending": self.file_blob(self.paths.pending)})
         consistent = bool(group) and all(config_of(m) == config_of(group["members"][0]) for m in group["members"])
@@ -281,8 +433,9 @@ class Session:
         session = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
         scope = digest({"session": session, "group": groups_without_active([group])})
         try:
-            previous = json.loads(self.paths.activity.read_text())
-        except (OSError, ValueError):
+            raw = self.paths.owned_blob(self.paths.activity)
+            previous = json.loads(raw) if raw is not None else {}
+        except (SettingsError, ValueError, UnicodeError):
             previous = {}
         if not isinstance(previous, dict) or not session or previous.get("scope") != scope:
             previous = {}
@@ -322,7 +475,7 @@ class Session:
         with self.paths.lock():
             snap = self.snapshot(event_device)
             activity = encoded(snap["activity"])
-            if not self.paths.activity.exists() or self.paths.activity.read_bytes() != activity:
+            if self.paths.owned_blob(self.paths.activity) != activity:
                 atomic(self.paths.activity, activity)
         group = snap["group"]
         configured, configured_shortcut, pending = self.configured(snap)
@@ -412,7 +565,7 @@ class Session:
     def save(self, pairs, shortcut, revision, event_device="", expected_active_id=None):
         """Apply a validated layout set now, with durable file and runtime rollback."""
         with self.paths.lock():
-            if self.paths.transaction.exists():
+            if path_present(self.paths.transaction):
                 raise SettingsError("A previous file update needs recovery before editing again.")
             snap = self.require_current(revision, event_device=event_device)
             if expected_active_id is not None:
@@ -496,9 +649,9 @@ class Session:
                 atomic(self.paths.active, written_active)
                 atomic(self.paths.pending, written_pending)
                 atomic(self.paths.profile, written_profile)
-                if (self.paths.active.read_bytes() != written_active
-                        or self.paths.pending.read_bytes() != written_pending
-                        or self.paths.profile.read_bytes() != written_profile):
+                if (self.paths.owned_blob(self.paths.active, missing_ok=False) != written_active
+                        or self.paths.owned_blob(self.paths.pending, missing_ok=False) != written_pending
+                        or self.paths.owned_blob(self.paths.profile, missing_ok=False) != written_profile):
                     raise OSError("saved keyboard files failed readback")
                 self.hypr.reload()
                 self._switch_members(snap["group"]["members"], after_index)
@@ -525,7 +678,10 @@ class Session:
         conflicts = []
         for label, attribute in self._transaction_files(transaction):
             path = getattr(self.paths, attribute)
-            current = self.file_blob(path)
+            # A legacy recovery record may need to compare an obsolete loader
+            # byte-for-byte. It is bounded and no-follow but is never accepted
+            # as executable source by this comparison-only path.
+            current = self.file_blob(path, comparison_only=attribute == "override")
             written = transaction.get("written" + label)
             previous = transaction.get(attribute)
             if current == written:
@@ -549,7 +705,7 @@ class Session:
         self.paths.transaction.unlink(missing_ok=True)
 
     def recover_pending(self):
-        if not self.paths.transaction.exists():
+        if not path_present(self.paths.transaction):
             return
         with self.paths.lock():
             transaction = self.paths.read(self.paths.transaction, None)
@@ -567,10 +723,11 @@ class Session:
 
     def reset_saved(self):
         """Called under the installation lock, only by explicit removal."""
-        if self.paths.transaction.exists():
+        if path_present(self.paths.transaction):
             raise SettingsError("Recover the pending keyboard file update before removal.")
-        owned = (self.paths.override, self.paths.active, self.paths.pending, self.paths.profile)
-        if not any(path.exists() for path in owned):
+        owned = (self.paths.override, self.paths.promoter, self.paths.active,
+                 self.paths.pending, self.paths.profile)
+        if not any(path_present(path) for path in owned):
             return
         blobs = {path: self.file_blob(path) for path in owned}
         backup = self.paths.root / "backups" / ("remove-" + secrets.token_hex(8))
@@ -580,21 +737,29 @@ class Session:
         for path, blob in blobs.items():
             if blob is not None:
                 atomic(backup / path.name, base64.b64decode(blob))
-        for path in (self.paths.pending, self.paths.active, self.paths.profile):
-            path.unlink(missing_ok=True)
-        self.paths.override.unlink(missing_ok=True)
         try:
+            # Disable the loader before removing the helper and data it uses.
+            self.paths.override.unlink(missing_ok=True)
+            for path in (self.paths.promoter, self.paths.pending,
+                         self.paths.active, self.paths.profile):
+                path.unlink(missing_ok=True)
             if blobs[self.paths.override] is not None:
                 self.hypr.reload()
         except Exception:
-            for path, blob in blobs.items():
+            # Reconstruct data and the promotion helper before re-enabling the
+            # watched loader, which may be evaluated as soon as it reappears.
+            restore_order = (self.paths.promoter, self.paths.active,
+                             self.paths.pending, self.paths.profile,
+                             self.paths.override)
+            for path in restore_order:
+                blob = blobs[path]
                 self.restore_blob(path, blob)
             self.hypr.reload()
             raise
 
-    @staticmethod
-    def file_blob(path):
-        return base64.b64encode(path.read_bytes()).decode() if path.exists() else None
+    def file_blob(self, path, comparison_only=False):
+        data = self.paths.owned_blob(path, comparison_only=comparison_only)
+        return base64.b64encode(data).decode() if data is not None else None
 
     @staticmethod
     def restore_blob(path, blob):

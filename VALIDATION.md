@@ -969,3 +969,42 @@ native checks with zero failures, resource/orphan checks and the reproducible
 growth. The checksum-verified official Actions runner 2.337.0 was registered to
 this repository as ephemeral for one job and removed its credentials and
 registration after success.
+
+## Marketplace security-hardening candidate — 2026-09-04
+
+This worktree implements the two blockers reported in marketplace review
+[#4530](https://github.com/omacom/omarchy-plugin-marketplace/issues/4530) for
+`0.1.0-beta.2`. It is based on commit
+`e0ad38f234039309492f34d38983530c4a61de8f`, but the hardening changes are not
+yet an immutable release commit. The release-input fingerprint, excluding this
+evidence ledger, is
+`68f2854cbb8668ecd877043338df057816f876a5e432fa6e9243aeef28fec430`.
+
+Two independent design audits were followed by a separate finished-diff audit.
+That final audit found and drove additional fail-closed fixes for unsafe pending
+and lock objects, cache reads, incomplete retained runtime state, legacy recovery
+comparison, promoter revision/compatibility coverage, and Python/Lua strict-hex
+agreement. Its final blocker-only pass reported no remaining code, QML,
+lifecycle or package-registration blocker.
+
+| Gate | Result |
+| --- | --- |
+| Python backend, security, lifecycle and packaging | **102 passed**. Coverage includes the original predictable `.session` symlink exploit with the victim unchanged; linked, special, oversized and malformed state; partial writes, sync/readback/rename/snapshot failures; exact historical beta.1 upgrade and rollback; cache bounds; bounded compositor floods; and normal, TERM and `SIGKILL` cleanup of TERM-resistant child/grandchild processes plus watchdogs. |
+| Native UI/process boundary | **34 passed, 0 failed**. Failed startup, no-newline stdout/stderr floods, malformed output, timeout/KILL, stale timer generations and mutation-timeout readback classify safely. Search p95 was 32 ms, the refresh storm was 204 ms, RSS grew 364 KiB, file descriptors did not grow and no supervisor/watchdog was orphaned. Picker, editor, trial-state and unresolved captures were inspected without a visual regression. |
+| Offline health | All budgets passed. Catalog cold p95 was 106.9 ms and warm p95 85.4 ms; one-layout save p95 was 49.9 ms; four-layout save p95 66.5 ms; promotion-helper p95 46.4 ms; supervised idle-status p95 102.3 ms; search p95 0.058 ms; and the five-minute-equivalent helper cost was 0.431% of one core. |
+| Distribution and static checks | `python3 tools/package.py` passed Omarchy validation and produced the `0.1.0-beta.2` archive with the expected 26 runtime files. Python compilation, production-QML lint and `git diff --check` passed. |
+
+No live keyboard, installed plugin, login session, repository, tag, release or
+marketplace issue was changed during this hardening pass. The beta.1 live evidence
+above does not substitute for beta.2 acceptance. With separate authorization,
+the exact release commit still needs Git upgrade/activation, switching and save
+readback, reload and 20-second polling, `hyprctl configerrors`, physical typing,
+next-login promotion and persistence, retained-settings and complete removal
+recovery, compatible-runner CI, an immutable `v0.1.0-beta.2` tag/package, and a
+revalidation request on the existing review issue rather than a duplicate.
+
+Residual limits remain the unsandboxed same-UID plugin trust boundary,
+pathological uninterruptible kernel I/O, brief reparented zombie states after a
+violent supervisor death, and processes that deliberately escape the supervisor
+session before cleanup. These are not presented as guarantees supplied by the
+plugin.
