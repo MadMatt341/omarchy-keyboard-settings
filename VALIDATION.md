@@ -1067,11 +1067,15 @@ passed source whitespace, exact fingerprint recording, Omarchy validation, all
 102 Python tests, every health budget, all 34 native checks and reproducible
 packaging on that commit.
 
-The checksum-verified official Actions runner 2.337.0 was registered with the
-repository and `omarchy-quattro` labels as an ephemeral one-job runner. It removed
-its credentials and registration after the successful job; GitHub then reported
-zero repository runners, and the temporary runner directory and archive were
-deleted.
+The tag-push workflow independently reran the same gates as
+[`33928208919`](https://github.com/MadMatt341/omarchy-keyboard-settings/actions/runs/33928208919)
+with branch `v0.1.0-beta.2` and the same exact `a7526c0` head. Every step passed.
+
+For each branch and tag run, checksum-verified official Actions runner 2.337.0 was
+registered with the repository and `omarchy-quattro` labels as an ephemeral
+one-job runner. Each removed its credentials and registration after its successful
+job; GitHub then reported zero repository runners, and both temporary runner
+directories and downloaded archives were deleted.
 
 Annotated tag [`v0.1.0-beta.2`](https://github.com/MadMatt341/omarchy-keyboard-settings/releases/tag/v0.1.0-beta.2)
 peels exactly to `a7526c0`. The published prerelease is non-draft and contains the
