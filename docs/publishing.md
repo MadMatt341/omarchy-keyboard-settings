@@ -38,6 +38,7 @@ Updates use:
 ```sh
 omarchy plugin update madmatt.keyboard-settings
 python3 ~/.config/omarchy/plugins/madmatt.keyboard-settings/tools/plugin.py activate --apply
+omarchy restart shell
 ```
 
 The updater fast-forwards from the repository's default branch. It does not use a
@@ -45,7 +46,8 @@ GitHub Release or manifest version as a pin, so every default-branch commit is a
 potential user update. Promote only fully checked candidates to that branch and
 do not rewrite published history. Re-running activation preserves the existing
 receipt, bar placement and saved settings while refreshing a versioned loader or
-data format. See Omarchy's
+data format. Restarting the shell after the update is required to replace an
+already-instantiated QML backend with the updated process boundary. See Omarchy's
 [update implementation](https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-plugin-update).
 
 Removal must run the plugin's explicit cleanup first because Omarchy does not call

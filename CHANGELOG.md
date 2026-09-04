@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-beta.2 — 2026-09-04
+## 0.1.0-beta.2 — 2026-09-05
 
 - Move login-time active/pending reads and promotion out of Lua into a bounded,
   no-follow, descriptor-relative standard-library helper with unpredictable
@@ -12,6 +12,8 @@
   `unconfirmed` from validated domain rejections.
 - Harden plugin-owned runtime state reads, exact-loader/helper ownership checks,
   activation upgrades, retained-settings removal and exploit regression coverage.
+- Require a shell restart after updates so already-loaded QML adopts the new
+  supervised command boundary immediately.
 
 ## 0.1.0-beta.1 — 2026-09-02
 

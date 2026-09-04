@@ -970,15 +970,15 @@ growth. The checksum-verified official Actions runner 2.337.0 was registered to
 this repository as ephemeral for one job and removed its credentials and
 registration after success.
 
-## Marketplace security-hardening candidate — 2026-09-04
+## Marketplace security-hardening candidate — 2026-09-04–05
 
 This worktree implements the two blockers reported in marketplace review
 [#4530](https://github.com/omacom/omarchy-plugin-marketplace/issues/4530) for
-`0.1.0-beta.2`. It is based on commit
-`e0ad38f234039309492f34d38983530c4a61de8f`, but the hardening changes are not
-yet an immutable release commit. The release-input fingerprint, excluding this
-evidence ledger, is
-`68f2854cbb8668ecd877043338df057816f876a5e432fa6e9243aeef28fec430`.
+`0.1.0-beta.2`. The hardening implementation is frozen in local candidate commit
+`370aafa3edcb1f43233056aad090a2c367a87aae`, based on beta.1 evidence commit
+`e0ad38f234039309492f34d38983530c4a61de8f`. The post-acceptance release-input
+fingerprint, excluding this evidence ledger, is
+`e55a5c7bf916bcfe97dfdaa3ac35a6ce8c523ea8c9f6937f995aba927adc04cd`.
 
 Two independent design audits were followed by a separate finished-diff audit.
 That final audit found and drove additional fail-closed fixes for unsafe pending
@@ -994,14 +994,71 @@ lifecycle or package-registration blocker.
 | Offline health | All budgets passed. Catalog cold p95 was 106.9 ms and warm p95 85.4 ms; one-layout save p95 was 49.9 ms; four-layout save p95 66.5 ms; promotion-helper p95 46.4 ms; supervised idle-status p95 102.3 ms; search p95 0.058 ms; and the five-minute-equivalent helper cost was 0.431% of one core. |
 | Distribution and static checks | `python3 tools/package.py` passed Omarchy validation and produced the `0.1.0-beta.2` archive with the expected 26 runtime files. Python compilation, production-QML lint and `git diff --check` passed. |
 
-No live keyboard, installed plugin, login session, repository, tag, release or
-marketplace issue was changed during this hardening pass. The beta.1 live evidence
-above does not substitute for beta.2 acceptance. With separate authorization,
-the exact release commit still needs Git upgrade/activation, switching and save
-readback, reload and 20-second polling, `hyprctl configerrors`, physical typing,
-next-login promotion and persistence, retained-settings and complete removal
-recovery, compatible-runner CI, an immutable `v0.1.0-beta.2` tag/package, and a
-revalidation request on the existing review issue rather than a duplicate.
+After the live-discovered update restart was documented, every local gate was
+repeated under final release-input fingerprint
+`e55a5c7bf916bcfe97dfdaa3ac35a6ce8c523ea8c9f6937f995aba927adc04cd`.
+All **102** Python tests passed. Health budgets passed with catalog cold/warm p95
+of 94.5/70.7 ms, one-/four-layout save p95 of 64.7/99.6 ms, promotion-helper
+p95 of 34.4 ms, supervised status p95 of 104.2 ms, search p95 of 0.053 ms and
+five-minute-equivalent cost of 0.449% of one core. The native harness passed all
+**34** checks with 27 ms search p95, 203 ms refresh storm, 40 KiB RSS growth,
+zero descriptor growth and no orphan. Picker, editor, search, trial and unresolved
+captures were inspected without regression. Omarchy validation passed and the
+26-file archive has SHA-256
+`1120389f3fcb63f8798e21ee913c32fce7363af7b40b8d67e5f92ef626842dc9`.
+
+### Live beta.2 acceptance — 2026-09-04–05
+
+With explicit authorization, Omarchy fast-forwarded the installed checkout from
+`fabac74` to exact candidate `370aafa`. Its existing 4,672-byte loader matched the
+released beta.1 digest exactly. Activation migrated that state without changing
+the current `pl/intl, us/` layout, installed the exact promoter and loader, made
+the state directory `0700`, and left the loader, promoter, active, pending and
+lock files private at `0600`. The checkout remained clean, the replacement bar
+entry remained unique, the stock entry absent, and `hyprctl configerrors` empty.
+
+The installed supervisor committed a Polish-to-US-to-Polish switch with mandatory
+readback after each direction and no persistent-file change. A separate save
+round trip reordered the live/default layouts, disabled the keyboard shortcut,
+then restored `pl/intl, us/` and both Alt. Every mutation and readback committed;
+the profile and fixed control files returned byte-for-byte, active and pending
+were valid equal v2 data bound to the current session, and no transaction,
+temporary file, supervisor or watchdog remained. The user's physical Polish
+typing and both shortcut directions passed without collecting typed text.
+
+The first 23-second observer correctly found no beta.2 supervisor because
+`omarchy plugin update` rescanned plugin metadata but did not reinstantiate the
+already-loaded QML backend. After the documented `omarchy restart shell`, shell
+IPC answered and a refined full-interval observation saw exactly one status
+supervisor launched directly by Quickshell plus its watchdog. State stayed stable,
+and both processes exited. The README, changelog and publication guide now make
+that update restart explicit so the new boundary takes effect immediately.
+
+For next-session promotion, a guarded save staged sole logical `pl/intl` as the
+reviewed duplicated physical compatibility state. Active and pending were valid,
+current-session v2 files with deliberately different hashes. After a full reboot,
+private boot and Hyprland-session hashes both changed; active matched the exact
+pre-reboot pending hash, active and pending matched each other, and runtime,
+configured and physical state were a true single `pl/intl` layout with compatibility
+mode cleared. Post-login physical Polish typing passed. A guarded save then
+restored the original `pl/intl, us/` profile byte-for-byte with Polish active.
+
+The Git lifecycle passed both modes on the same accepted candidate. Keep-settings
+preparation restored the stock bar and archived the receipt while retaining exact
+loader, promoter, active, pending and profile hashes. Omarchy removed the checkout,
+the retained state stayed intact, an exact clean local Git add restored the
+checkout, and activation recognized the fixed runtime as current before restoring
+the replacement and supervised status. Normal preparation created a private
+removal backup, removed the loader, promoter, active, pending, profile and receipt,
+reloaded the healthy stock `us/, pl/, de/` configuration, and left no transaction.
+After checkout removal, exact re-add and fresh activation, supervised save/readback
+restored the original profile hash and Polish active state. Final physical Polish
+typing and both shortcut directions passed. Redacted and private evidence is under
+`work/live-acceptance/68f2854/`.
+
+The remaining release actions are compatible-runner CI on the exact documentation
+closure commit, immutable `v0.1.0-beta.2` tag/package publication, and a
+revalidation request on existing marketplace review #4530 rather than a duplicate.
 
 Residual limits remain the unsandboxed same-UID plugin trust boundary,
 pathological uninterruptible kernel I/O, brief reparented zombie states after a
