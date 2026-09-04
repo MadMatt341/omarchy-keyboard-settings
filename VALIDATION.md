@@ -1004,7 +1004,7 @@ five-minute-equivalent cost of 0.449% of one core. The native harness passed all
 **34** checks with 27 ms search p95, 203 ms refresh storm, 40 KiB RSS growth,
 zero descriptor growth and no orphan. Picker, editor, search, trial and unresolved
 captures were inspected without regression. Omarchy validation passed and the
-26-file archive has SHA-256
+pre-closure 26-file archive has SHA-256
 `1120389f3fcb63f8798e21ee913c32fce7363af7b40b8d67e5f92ef626842dc9`.
 
 ### Live beta.2 acceptance — 2026-09-04–05
@@ -1056,9 +1056,36 @@ restored the original profile hash and Polish active state. Final physical Polis
 typing and both shortcut directions passed. Redacted and private evidence is under
 `work/live-acceptance/68f2854/`.
 
-The remaining release actions are compatible-runner CI on the exact documentation
-closure commit, immutable `v0.1.0-beta.2` tag/package publication, and a
-revalidation request on existing marketplace review #4530 rather than a duplicate.
+### Published beta.2 evidence — 2026-09-05
+
+Documentation closure commit
+`a7526c0dabbb34d5e8c366a04453fea6bca9ebdf` retained release-input fingerprint
+`e55a5c7bf916bcfe97dfdaa3ac35a6ce8c523ea8c9f6937f995aba927adc04cd`.
+GitHub Actions run
+[`33927803432`](https://github.com/MadMatt341/omarchy-keyboard-settings/actions/runs/33927803432)
+passed source whitespace, exact fingerprint recording, Omarchy validation, all
+102 Python tests, every health budget, all 34 native checks and reproducible
+packaging on that commit.
+
+The checksum-verified official Actions runner 2.337.0 was registered with the
+repository and `omarchy-quattro` labels as an ephemeral one-job runner. It removed
+its credentials and registration after the successful job; GitHub then reported
+zero repository runners, and the temporary runner directory and archive were
+deleted.
+
+Annotated tag [`v0.1.0-beta.2`](https://github.com/MadMatt341/omarchy-keyboard-settings/releases/tag/v0.1.0-beta.2)
+peels exactly to `a7526c0`. The published prerelease is non-draft and contains the
+exact-tag 26-file archive plus `checksums.txt`; GitHub reports the archive digest
+as `26ed0694d843ec78730911af1b6e817be231e8fd1bc4b6722054fc8ff309789d`,
+matching the local deterministic rebuild and checksum sidecar.
+
+Existing marketplace issue
+[#4530](https://github.com/omacom/omarchy-plugin-marketplace/issues/4530) was
+updated from beta.1 to the exact beta.2 tag/commit without opening a duplicate.
+The [revalidation request](https://github.com/omacom/omarchy-plugin-marketplace/issues/4530#issuecomment-5547480368)
+links the fixed mechanisms, release, compatible-runner CI, fingerprint and
+validation evidence. The issue remains open with its prior fix-required labels
+until a marketplace maintainer completes revalidation; approval is not claimed.
 
 Residual limits remain the unsandboxed same-UID plugin trust boundary,
 pathological uninterruptible kernel I/O, brief reparented zombie states after a
