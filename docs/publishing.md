@@ -127,6 +127,47 @@ and [verification workflow](https://github.com/omacom/omarchy-plugin-marketplace
 at submission time. Approval is tied to a reviewed commit and is not a complete
 security audit.
 
+## Keep the review commit stable
+
+Finish code, documentation and validation evidence before selecting the final
+submission commit. Validate that commit, publish its immutable release, then
+update existing issue #4530 to the full SHA of published `main`. Confirm that
+marketplace validation and the security baseline both cover it. Freeze `main`
+until the maintainer finishes review; even documentation changes invalidate the
+commit match. Continue development on separate branches. Put later publication
+and CI evidence in release notes or the submission, and fold it into repository
+documentation in the next planned candidate. Never move a published release tag.
+
+Before pushing or merging to `main`, inspect the issue's current review state and
+run this read-only check (Python 3 and authenticated GitHub CLI required):
+
+```sh
+python3 -B tools/check_marketplace_review.py
+```
+
+The check compares remote `main` with the validation report's GitHub-resolved
+commit and the security baseline's full SHA. It accepts only GitHub Actions bot
+reports, paginates comments, and fails on missing, duplicate or unrecognized
+reports, API failures, mismatches or concurrent movement of `main`. It checks
+commit alignment, not approval or security findings. It never changes the issue,
+repository, labels or local keyboard state.
+
+`Marketplace review drift` runs on `main` pushes, daily at 08:23 UTC, and manual
+dispatch. Its schedule becomes active only after the workflow reaches the default
+branch; GitHub scheduling delays and notification preferences apply. This is a
+post-push detector, not a merge gate: requiring this check on PRs would not prevent
+the next commit from moving `main`. Use branch protection requiring pull requests
+and controlled merges for stronger enforcement; that repository setting is not
+installed by this workflow. A passing result never authorizes a push during review.
+
+If a review fix must move `main`, finalize the entire replacement candidate first,
+update the existing submission to its full SHA, wait for both bot reports, then
+rerun this workflow and request manual review. A temporary drift failure is
+expected until revalidation finishes. Do not commit the resulting publication
+evidence back to `main` during that review. After approval, future updates also
+need the marketplace's applicable update/review process; old reports do not cover
+new commits.
+
 ## Proposed marketplace listing
 
 | Field | Value |

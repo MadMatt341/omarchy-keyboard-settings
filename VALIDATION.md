@@ -1096,3 +1096,19 @@ pathological uninterruptible kernel I/O, brief reparented zombie states after a
 violent supervisor death, and processes that deliberately escape the supervisor
 session before cleanup. These are not presented as guarantees supplied by the
 plugin.
+
+## Marketplace review drift safeguard — 2026-09-07
+
+Prepared on `codex/marketplace-review-guard` while published `main` remains
+`2194d222155d1feaa9f58aefe1bc5a81dfc0a602`. The rule and runbook freeze main
+during review and keep later publication evidence outside that branch. A read-only
+GitHub CLI check compares remote main with both marketplace bot reports; a hosted
+workflow runs it on main pushes, daily and manually after merge.
+
+Five focused unittest cases passed, covering matching and mismatched commits,
+missing/duplicate/spoofed reports, malformed baseline format, pagination and
+concurrent main movement. A live read-only run confirmed both current reports
+cover `2194d22`. Source whitespace checks passed. Plugin runtime and keyboard
+configuration are unchanged. Hosted workflow execution and scheduling remain
+unverified until merge after review; branch protection was not configured.
+This detector does not prove approval or prevent pushes.

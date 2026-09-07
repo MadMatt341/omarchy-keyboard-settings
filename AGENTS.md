@@ -57,6 +57,8 @@ observation state and can recover an interrupted live file/runtime transaction; 
 
 ## Keep handoffs small
 
+- Before pushing or merging to `main`, check marketplace review #4530 and run `python3 -B tools/check_marketplace_review.py`. While review is pending, freeze `main`, including documentation-only commits; develop on a separate branch. Record post-submission publication/test evidence in the release or submission, not a new `main` commit. Necessary review fixes require updating the submission to the new full SHA and rerunning both marketplace reports. Follow `docs/publishing.md`; a passing drift check does not grant approval or permission to push.
+
 - Check `git status` first and preserve unrelated edits. `work/` contains generated files and local studies, not the implementation to edit.
 - Document behavior/contract changes in the feature note and observed results in `VALIDATION.md`. Keep this file to working rules and navigation; do not duplicate the feature specification here.
 - State what changed, what was checked, and what remains unverified. Screenshots and compiled keymaps do not prove physical typing or persistence across login.
