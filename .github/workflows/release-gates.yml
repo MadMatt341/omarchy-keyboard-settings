@@ -2,6 +2,7 @@ name: Release gates
 
 on:
   push:
+    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 
@@ -22,7 +23,7 @@ jobs:
         run: git diff --check HEAD^ HEAD
       - name: Record source and test fingerprint
         run: python3 -B tools/source_fingerprint.py
-      - name: Validate the clean Git source users receive
+      - name: Validate the development plugin source
         run: omarchy plugin validate .
       - name: Run Python and integration tests
         run: python3 -B -m unittest discover -s tests -v
@@ -30,5 +31,10 @@ jobs:
         run: python3 -B tests/benchmark_health.py
       - name: Run native QML checks
         run: python3 tests/render_native.py
+      - name: Validate generated release tree
+        run: |
+          python3 -B tools/release.py --commit HEAD --output "work/release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          omarchy plugin validate "work/release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python3 -B "work/release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"/tools/plugin.py --help
       - name: Build and inspect reproducible package
         run: python3 -B tools/package.py

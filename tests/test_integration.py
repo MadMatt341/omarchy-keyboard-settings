@@ -460,4 +460,58 @@ class PackageHealthTests(unittest.TestCase):
                                   if name != ID and not archive.getmember(name).isdir())
             self.assertEqual(archived, runtime_files())
 
+
+
+class ReleaseExportTests(unittest.TestCase):
+    def export_fixture(self, root, names, files, modes=None):
+        from tools.release import generate
+        modes = modes or {}
+        sha = 'a' * 40
+        blobs = {str(i): data for i, data in enumerate(files.values())}
+        tree = b''.join(f'{modes.get(name, "100644")} blob {i}\t{name}\0'.encode()
+                        for i, name in enumerate(files))
+
+        def fake_git(*args):
+            if args[0] == 'rev-parse':
+                return sha.encode()
+            if args[0] == 'ls-tree':
+                return tree
+            if args[0] == 'show':
+                return json.dumps(names).encode()
+            if args[0] == 'cat-file':
+                return blobs[args[2]]
+            raise AssertionError(args)
+
+        with patch('tools.release.git', side_effect=fake_git):
+            return generate('HEAD', root)
+
+    def test_export_uses_committed_blobs_and_omits_development_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / 'release'
+            result = self.export_fixture(out, ['README.md', 'manifest.json'], {
+                'README.md': b'[manifest](manifest.json)', 'manifest.json': b'{}',
+                'AGENTS.md': b'private development instructions', 'tests/test.py': b'test'})
+            self.assertEqual(result['sourceCommit'], 'a' * 40)
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ['README.md', 'manifest.json'])
+            self.assertEqual((out / 'manifest.json').read_bytes(), b'{}')
+            with self.assertRaises(FileExistsError):
+                self.export_fixture(out, ['manifest.json'], {'manifest.json': b'changed'})
+            self.assertEqual((out / 'manifest.json').read_bytes(), b'{}')
+
+    def test_rejects_instruction_paths_links_missing_files_and_duplicates(self):
+        cases = [(['AGENTS.md'], {'AGENTS.md': b'x'}, {}),
+                 (['nested/CLAUDE.md'], {'nested/CLAUDE.md': b'x'}, {}),
+                 (['.codex/config.toml'], {'.codex/config.toml': b'x'}, {}),
+                 (['../escape'], {'../escape': b'x'}, {}),
+                 (['file'], {'file': b'AGENTS.md'}, {'file': '120000'}),
+                 (['missing'], {}, {}),
+                 (['file', 'file'], {'file': b'x'}, {}),
+                 (['README.md'], {'README.md': b'[dev](AGENTS.md)'}, {})]
+        with tempfile.TemporaryDirectory() as directory:
+            for names, files, modes in cases:
+                with self.subTest(names=names), self.assertRaises(ValueError):
+                    self.export_fixture(Path(directory) / 'release', names, files, modes)
+                self.assertFalse((Path(directory) / 'release').exists())
+
+
 if __name__ == '__main__': unittest.main()

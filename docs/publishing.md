@@ -66,6 +66,61 @@ checkout was deleted first, re-add it, prepare removal without activation, and
 remove it again. See the exact user and migration flows in
 [README.md](../README.md).
 
+## Development and release separation
+
+Implemented for the 2026-09-08 review candidate. `tools/release.py` exports a
+committed source snapshot using `release-files.json`, refuses existing output
+paths and non-regular or agent-instruction files, and checks local Markdown links.
+Publication and marketplace approval remain separate steps. The [latest marketplace review](https://github.com/omacom/omarchy-plugin-marketplace/issues/4530#issuecomment-5584316024)
+requires excluding automatically discovered contributor instructions from the
+installed plugin tree.
+
+- `development` will retain the full version-controlled project: `AGENTS.md`,
+  source, tests, development documentation and release tooling. Feature branches
+  will start from and return to that branch.
+- `main` will remain the default branch and installation/update target at the
+  existing repository URL. Its working tree will contain only explicitly selected
+  runtime files, required activation/removal and diagnostics dependencies,
+  manifest, assets, license and user documentation.
+- Generate each release from an exact tested development commit using an explicit
+  file allowlist. Never merge the development tree into `main`. Preserve existing
+  `main` history and append release commits so installed checkouts can continue
+  to fast-forward; do not force-push or rewrite existing release tags.
+- Exclude `AGENTS.md`, `CLAUDE.md` and other automatically discovered agent
+  instruction/configuration files throughout the release working tree. Keep this
+  contributor runbook and development-only material on `development`. Git ignore
+  rules and archive exclusions do not remove tracked files from Git installations.
+  Older instructions may remain in Git history; the boundary is the installed
+  working tree, not erasure of repository history.
+- Record both the development source SHA and generated release SHA in release
+  evidence. Test the source, then validate the generated installable tree and its
+  lifecycle dependencies in isolation. Check user-documentation links against
+  that tree. The supplemental archive's current file list is not sufficient for
+  Git distribution: it intentionally omits the activation helper.
+- CI runs source gates on `development` and feature branches, including generator
+  regression tests and validation of a fresh export. No development workflow or
+  test runner is shipped on `main`. The review drift tool is run manually from
+  `development`; its previous default-branch daily schedule is not deployed by
+  this release. A separate future automation can restore scheduled monitoring.
+- With publication authorization, publish the complete replacement `main`
+  candidate and update existing marketplace issue #4530 to its full release SHA.
+  Rerun marketplace validation and the security baseline for that same SHA, then
+  obtain the remaining manual review. Freeze `main` during review and continue
+  development on `development`.
+
+Generate a candidate from a clean committed development checkout:
+
+```sh
+python3 -B tools/release.py --commit HEAD --output work/release-candidate
+omarchy plugin validate work/release-candidate
+```
+
+The output must not already exist. Review its file list and run isolated lifecycle
+checks before committing its contents over the existing `main` tree in a separate
+checkout. Record the source SHA in that release commit message. Recheck remote
+`main` before a normal fast-forward push. Do not switch this development checkout
+to `main` to perform development edits.
+
 ## Implemented release controls
 
 | Area | Implemented state |
@@ -138,8 +193,9 @@ commit match. Continue development on separate branches. Put later publication
 and CI evidence in release notes or the submission, and fold it into repository
 documentation in the next planned candidate. Never move a published release tag.
 
-Before pushing or merging to `main`, inspect the issue's current review state and
-run this read-only check (Python 3 and authenticated GitHub CLI required):
+Before publishing to `main`, inspect the issue's current review state and
+run this read-only check from the development checkout (Python 3 and authenticated
+GitHub CLI required):
 
 ```sh
 python3 -B tools/check_marketplace_review.py
@@ -152,17 +208,14 @@ reports, API failures, mismatches or concurrent movement of `main`. It checks
 commit alignment, not approval or security findings. It never changes the issue,
 repository, labels or local keyboard state.
 
-`Marketplace review drift` runs on `main` pushes, daily at 08:23 UTC, and manual
-dispatch. Its schedule becomes active only after the workflow reaches the default
-branch; GitHub scheduling delays and notification preferences apply. This is a
-post-push detector, not a merge gate: requiring this check on PRs would not prevent
-the next commit from moving `main`. Use branch protection requiring pull requests
-and controlled merges for stronger enforcement; that repository setting is not
-installed by this workflow. A passing result never authorizes a push during review.
+The former `Marketplace review drift` workflow is removed; there is no
+scheduled drift detector on release `main`. Run the tool locally before and
+after publication/revalidation. It detects drift, not approval, and is not a merge
+gate. Repository branch protection is not configured by this tooling.
 
 If a review fix must move `main`, finalize the entire replacement candidate first,
 update the existing submission to its full SHA, wait for both bot reports, then
-rerun this workflow and request manual review. A temporary drift failure is
+rerun the local check and request manual review. A temporary drift failure is
 expected until revalidation finishes. Do not commit the resulting publication
 evidence back to `main` during that review. After approval, future updates also
 need the marketplace's applicable update/review process; old reports do not cover

@@ -22,7 +22,6 @@ def runtime_files():
     names = {
         "manifest.json", "qmldir", "README.md", "LICENSE", "SECURITY.md", "SUPPORT.md",
         "CHANGELOG.md", "VALIDATION.md", "preview.png", "docs/keyboard-settings.md",
-        "docs/publishing.md",
     }
     names.update(path.name for path in ROOT.glob("*.qml"))
     names.update(str(path.relative_to(ROOT)) for path in (ROOT / "backend").glob("*.py"))

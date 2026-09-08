@@ -165,7 +165,10 @@ configuration files, `hyprctl devices` output or helper `status` output.
 
 ## Development and release checks
 
-Run from the repository root on a compatible Omarchy installation. The native
+The default `main` branch is the installable release. For development, check out
+the [development branch](https://github.com/MadMatt341/omarchy-keyboard-settings/tree/development),
+which retains agent instructions, tests and release tooling. Run the commands below
+from that development checkout on a compatible Omarchy installation. The native
 harness uses installed `qs.Ui` and `qs.Commons` components with an offscreen
 fixture; it does not connect to the live Wayland keyboard session.
 
@@ -184,5 +187,5 @@ Git installation is the supported user route; the archive does not contain the
 activation helper.
 
 Implementation contracts are in [docs/keyboard-settings.md](docs/keyboard-settings.md),
-the publication runbook is in [docs/publishing.md](docs/publishing.md), and exact
+the publication runbook is on the [development branch](https://github.com/MadMatt341/omarchy-keyboard-settings/blob/development/docs/publishing.md), and exact
 evidence and open live checks are in [VALIDATION.md](VALIDATION.md).
