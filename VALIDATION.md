@@ -1096,3 +1096,44 @@ pathological uninterruptible kernel I/O, brief reparented zombie states after a
 violent supervisor death, and processes that deliberately escape the supervisor
 session before cleanup. These are not presented as guarantees supplied by the
 plugin.
+
+## Marketplace review drift safeguard — 2026-09-07
+
+Prepared on `codex/marketplace-review-guard` while published `main` remains
+`2194d222155d1feaa9f58aefe1bc5a81dfc0a602`. The rule and runbook freeze main
+during review and keep later publication evidence outside that branch. A read-only
+GitHub CLI check compares remote main with both marketplace bot reports; a hosted
+workflow runs it on main pushes, daily and manually after merge.
+
+Five focused unittest cases passed, covering matching and mismatched commits,
+missing/duplicate/spoofed reports, malformed baseline format, pagination and
+concurrent main movement. A live read-only run confirmed both current reports
+cover `2194d22`. Source whitespace checks passed. Plugin runtime and keyboard
+configuration are unchanged. Hosted workflow execution and scheduling remain
+unverified until merge after review; branch protection was not configured.
+This detector does not prove approval or prevent pushes.
+
+## Development/release separation — 2026-09-08
+
+The development branch retains tracked agent instructions, tests and publication
+rules. `tools/release.py` exports an exact committed snapshot through the explicit
+30-file `release-files.json` allowlist. It rejects agent-instruction paths,
+non-regular files, missing files, duplicate entries, existing destinations and
+broken local Markdown links before writing the release. `main` receives generated
+files as an ordinary descendant commit, preserving Git update history.
+
+Local source checks passed: 109 Python tests (including two release-export
+regressions), offline health budgets, native harness including process teardown,
+and the official Omarchy package validator. The editor capture was inspected.
+Runtime QML and backend Python are unchanged. The supplemental archive excludes
+the development publishing runbook; Git distribution additionally includes the
+activation/removal/diagnostic tools and their package-helper dependency.
+
+Source CI continues on development/feature branches. Development workflows are
+excluded from the installable tree; the earlier proposed daily drift workflow is
+removed and the read-only drift check is manual. No branch-protection changes or
+live keyboard changes were made. Isolated export results and exact publication
+SHAs belong in the submission/release evidence after generation, not a subsequent
+commit to a frozen release branch. Physical typing, a fresh account installation,
+and persistence across login have not been retested for this distribution-only
+change; earlier beta.2 evidence and open acceptance checks remain applicable.

@@ -1,7 +1,8 @@
 # Keyboard settings: feature and implementation
 
-Current implementation in this checkout. Use [AGENTS.md](../AGENTS.md) to find the
-owning files and [VALIDATION.md](../VALIDATION.md) for evidence and open live checks.
+Current implementation in this checkout. See [VALIDATION.md](../VALIDATION.md)
+for evidence and open live checks. Development instructions and tests live on the
+[development branch](https://github.com/MadMatt341/omarchy-keyboard-settings/tree/development).
 
 ## User behavior
 
