@@ -216,6 +216,7 @@ restores prior indices if a partial switch fails.
 | `ROOT/promote-v1.py` | Exact private copy of the bounded login-time promotion helper. It is retained with `--keep-settings` because the fixed loader remains active without the UI checkout. |
 | `STATE/omarchy/toggles/hypr/madmatt-keyboard-settings.lua` | Fixed loader installed during activation. It parses strict hex records and retains a session-bound promotion path for compatible older pending data. |
 | `CACHE/omarchy/keyboard-settings/catalog-v1.json` | Atomic parsed-XKB cache, keyed by the SHA-256 hashes of the installed base and extras registries. Reads are private, bounded and no-follow; corruption, unsafe paths or source changes rebuild it. |
+| `ROOT/lifecycle.json` | Bounded private activation/refresh/removal rollback journal, recovered only by an explicit lifecycle `--apply` retry. |
 | `ROOT/installation.json` | External activation receipt with the exact original bar entry, section/index and backup reference. It survives Git updates and generic checkout removal. |
 | `ROOT/lifecycle/backups/<token>/shell.json` | Bar backup created by Git activation. |
 | `ROOT/lifecycle/prepared-removals/<token>/installation.json` | Archived receipt after explicit preparation for removal. |
@@ -240,7 +241,15 @@ helper plus valid active/pending data; incomplete or beta.1 runtime state must b
 reactivated first. Both use the same bounded state lock as settings
 changes, refuse a pending transaction or concurrent bar edit, and keep recovery
 evidence outside the checkout. Omarchy remains responsible for cloning, updating
-and deleting the Git checkout. `tools/install.py` remains only for migration and
+and deleting the Git checkout. Before mutation, beta.3 records previous and intended
+bytes for fixed lifecycle paths in a private, bounded journal. On an explicit
+`--apply` retry, recovery preflights all paths against those snapshots, restores
+the previous files with helper/data before loader ordering, reloads after a
+removal or refresh rollback, and clears the journal only after durable completion.
+A conflicting external edit or failed recovery leaves the journal in place.
+Picker state/mutation locks refuse pending lifecycle recovery; dry runs do not
+perform it. This journal is separate from the live layout-save transaction.
+`tools/install.py` remains only for migration and
 isolated compatibility tests of older copied development installations.
 
 ## Incident boundary

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.3 — 2026-09-08
+
+- Journal activation, loader refresh and removal before changing their files;
+  an explicit retry recovers an interrupted operation before proceeding.
+- Block picker mutations while lifecycle recovery is pending, preserve conflicting
+  external edits, and retain the journal when recovery cannot be confirmed.
+- Keep version-controlled agent instructions and tests on `development`; publish
+  an explicit installable file selection on `main` at the existing Git URL.
+- Add process-death tests across activation/removal boundaries and rollback tests
+  for failed receipt archival and conflicting edits.
+
 ## 0.1.0-beta.2 — 2026-09-05
 
 - Move login-time active/pending reads and promotion out of Lua into a bounded,

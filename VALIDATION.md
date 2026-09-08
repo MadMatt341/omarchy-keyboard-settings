@@ -1137,3 +1137,27 @@ SHAs belong in the submission/release evidence after generation, not a subsequen
 commit to a frozen release branch. Physical typing, a fresh account installation,
 and persistence across login have not been retested for this distribution-only
 change; earlier beta.2 evidence and open acceptance checks remain applicable.
+
+## Lifecycle recovery beta.3 candidate — 2026-09-08
+
+`tools/lifecycle.py` now journals fixed previous/intended file snapshots before
+activation, loader refresh or removal writes. An explicit retry restores the
+previous state under the same settings lock and then retries the requested action.
+Recovery validates executable snapshots, refuses conflicting external edits and
+retains its bounded private journal when restoration cannot be confirmed. Picker
+operations refuse a pending lifecycle journal. Dry runs report pending recovery
+without modifying files. Receipt archival failures roll back removal.
+
+Local checks: 113 Python tests passed, including 16 forked process-death boundary
+cases across activation/removal, unchanged dry-run snapshots, blocked picker locks,
+external-edit preservation, archive-failure retry and rejection of an executable
+snapshot forged into a recovery journal. Existing loader-upgrade rollback tests
+also pass with compositor calls isolated. Offline health, native harness (including
+orphan teardown) and Omarchy package validation passed. QML files are unchanged.
+The new helper is explicitly included in the 31-file Git release allowlist.
+
+No live installation or keyboard changes were performed for this candidate.
+Older interrupted installations that have no lifecycle journal still require
+manual review; this does not infer ownership from an incomplete old receipt.
+Fresh-account lifecycle and physical typing/login checks remain open. Exact source
+and release SHAs plus exported-tree results are recorded externally after generation.

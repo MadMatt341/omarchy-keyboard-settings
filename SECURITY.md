@@ -45,6 +45,12 @@ failure. The loader retains session-bound promotion for compatible older pending
 data. Runtime switching addresses only verified typing interfaces; the plugin does
 not expose the former `hyprctl eval hl.device` path.
 
+Activation, loader refresh and removal also record a bounded private lifecycle
+journal before mutation. An explicit lifecycle retry restores validated snapshots
+at fixed paths; it rejects conflicting external edits and unrecognized executable
+snapshots. Picker operations are blocked until lifecycle recovery completes.
+The journal can contain the bar configuration and must not be posted publicly.
+
 The supported security-update line is the latest published beta release. Until a
 public release exists, only the exact commits recorded in `VALIDATION.md` have
 project evidence.
