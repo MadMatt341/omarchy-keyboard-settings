@@ -109,6 +109,7 @@ class Paths:
         self.profile = self.root / "settings.json"
         self.activity = self.root / "activity.json"
         self.transaction = self.root / "transaction.json"
+        self.lifecycle = self.root / "lifecycle.json"
         self.override = self.state / "omarchy/toggles/hypr/madmatt-keyboard-settings.lua"
         self.active = self.root / "active-v1.conf"
         self.pending = self.root / "pending-v1.conf"
@@ -121,6 +122,7 @@ class Paths:
             self.profile: MAX_PROFILE_BYTES,
             self.activity: MAX_ACTIVITY_BYTES,
             self.transaction: MAX_TRANSACTION_BYTES,
+            self.lifecycle: 4 * 1024 * 1024,
             self.active: MAX_DATA_BYTES,
             self.pending: MAX_DATA_BYTES,
             self.override: max(len(LOADER), BETA1_LOADER_BYTES),
@@ -145,7 +147,7 @@ class Paths:
             raise SettingsError(f"Cannot read {Path(path).name}. Recover the saved settings before editing.") from exc
 
     @contextmanager
-    def lock(self):
+    def lock(self, allow_lifecycle=False):
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         info = self.root.lstat()
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
@@ -173,6 +175,8 @@ class Paths:
                     if time.monotonic() >= deadline:
                         raise SettingsError("Another keyboard settings action is still running. Try again.")
                     time.sleep(0.02)
+            if not allow_lifecycle and path_present(self.lifecycle):
+                raise SettingsError("An interrupted installation or removal needs recovery. Run the plugin lifecycle helper with --apply before using the picker.")
             yield
         finally:
             os.close(fd)

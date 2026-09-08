@@ -23,7 +23,7 @@ For typing problems, describe the expected and observed characters in your own
 words; do not attach captured key events.
 
 Do not post raw `settings.json`, `activity.json`, `transaction.json`,
-`active-v1.conf`, `pending-v1.conf`, generated Lua, the installed
+`active-v1.conf`, `pending-v1.conf`, `lifecycle.json`, generated Lua, the installed
 `promote-v1.py` helper, `hyprctl devices` output or helper `status` output. Those
 may reveal keyboard device names, configured
 layouts, paths or other local configuration. The plugin never records typed text,
@@ -31,6 +31,14 @@ and a useful support report should not contain it. Remove usernames, home paths,
 device serial numbers and unrelated configuration from anything you attach.
 
 Common recovery paths:
+
+- If activation, loader refresh or removal was interrupted on beta.3 or later,
+  rerun the same `tools/plugin.py` command with `--apply`. It first restores the
+  recorded previous files, then retries the operation. Dry runs report pending
+  recovery without changing it. Picker actions remain blocked until recovery
+  completes. If external edits conflict with the journal, they are preserved;
+  request review rather than deleting `lifecycle.json`. Older interrupted installs
+  without this journal still require manual review.
 
 - A save interrupted during its file/runtime transaction is checked by the next
   helper request. A fully applied setup is finalized; otherwise the previous

@@ -21,6 +21,7 @@ from backend.deferred import (BETA1_LOADER_SHA256, DATA_HEADER, LOADER, PROMOTER
                               render_rows)
 from backend.session import Paths, Session, atomic, encoded, path_present
 from tools.install import ID, STOCK, location, replace, tree_hash
+from tools import lifecycle
 
 
 def _inputs(source=ROOT):
@@ -34,13 +35,6 @@ def _inputs(source=ROOT):
     if not shell.is_file() or shell.is_symlink():
         raise SettingsError("A regular shell.json is required for reversible activation.")
     return paths, shell, target, receipt, Path(source)
-
-
-def _restore(path, content):
-    if content is None:
-        path.unlink(missing_ok=True)
-    else:
-        atomic(path, content)
 
 
 def _loader_plan(paths):
@@ -124,6 +118,7 @@ def activate(apply=False, source=ROOT):
         raise SettingsError("Run activation from the Git checkout installed by `omarchy plugin add`.")
     if not (target / ".git").exists():
         raise SettingsError("The installed plugin is not Git-managed. Use the documented migration first.")
+    lifecycle.recover(paths, shell, apply)
     before = shell.read_bytes()
     settings = json.loads(before)
     receipt_before = paths.owned_blob(receipt)
@@ -152,13 +147,17 @@ def activate(apply=False, source=ROOT):
             if paths.owned_blob(paths.profile) != loader_profile or any(paths.owned_blob(path) != previous
                                                             for path, (previous, _) in loader_plan.items()):
                 raise SettingsError("The saved keyboard state changed. Run activation again.")
+            lifecycle.begin(paths, shell, {path: content for path, (_, content) in loader_plan.items()},
+                            reload_on_recovery=True,
+                            expected={shell: before, receipt: receipt_before, paths.profile: loader_profile,
+                                      **{path: previous for path, (previous, _) in loader_plan.items()}})
             try:
                 for path, (_, content) in loader_plan.items():
                     atomic(path, content)
             except Exception:
-                for path, (previous, _) in reversed(loader_plan.items()):
-                    _restore(path, previous)
+                lifecycle.rollback(paths, shell)
                 raise
+            lifecycle.finish(paths)
         print("Refreshed the fixed keyboard loader. The current keyboard layout was unchanged.")
         return
 
@@ -183,29 +182,34 @@ def activate(apply=False, source=ROOT):
         backup = paths.root / "lifecycle/backups" / token
         written = json.dumps(updated, indent=2).encode() + b"\n"
         atomic(backup / "shell.json", before)
-        atomic(receipt, encoded({"schema": 3, "mode": "git", "originalEntry": original,
-                                 "originalLocation": {"section": section, "index": index},
-                                 "backup": str(backup.relative_to(paths.root)),
-                                 "deferredLoader": True}))
+        written_receipt = encoded({"schema": 3, "mode": "git", "originalEntry": original,
+                                   "originalLocation": {"section": section, "index": index},
+                                   "backup": str(backup.relative_to(paths.root)),
+                                   "deferredLoader": True})
+        changes = {path: content for path, (_, content) in loader_plan.items()}
+        changes.update({receipt: written_receipt, shell: written})
+        lifecycle.begin(paths, shell, changes,
+                        expected={shell: before, receipt: None, paths.profile: loader_profile,
+                                  **{path: previous for path, (previous, _) in loader_plan.items()}})
         try:
+            atomic(receipt, written_receipt)
             for path, (_, content) in loader_plan.items():
                 atomic(path, content)
             atomic(shell, written)
         except Exception:
-            receipt.unlink(missing_ok=True)
-            if shell.exists() and shell.read_bytes() == written:
-                atomic(shell, before)
-            for path, (previous, _) in reversed(loader_plan.items()):
-                _restore(path, previous)
+            lifecycle.rollback(paths, shell)
             raise
+        lifecycle.finish(paths)
     print("Activated the Git-managed plugin. Omarchy will hot-reload the bar.")
 
 
 def prepare_remove(apply=False, keep_settings=False, source=ROOT):
     paths, shell, target, receipt, _ = _inputs(source)
+    lifecycle.recover(paths, shell, apply)
     if not receipt.is_file() or receipt.is_symlink():
         raise SettingsError("There is no activation receipt to restore safely.")
-    saved = json.loads(paths.owned_blob(receipt, missing_ok=False))
+    receipt_before = paths.owned_blob(receipt, missing_ok=False)
+    saved = json.loads(receipt_before)
     if saved.get("schema") not in (None, 2, 3) or "originalEntry" not in saved:
         raise SettingsError("The activation receipt format needs manual review.")
     if saved.get("schema") is None and saved.get("files"):
@@ -248,17 +252,25 @@ def prepare_remove(apply=False, keep_settings=False, source=ROOT):
         if keep_settings:
             paths.check_retained_state(allow_profile_only=saved.get("schema") is None)
         written = json.dumps(updated, indent=2).encode() + b"\n"
-        atomic(shell, written)
+        changes = {shell: written, receipt: None}
+        if not keep_settings:
+            for path in (paths.override, paths.promoter, paths.active, paths.pending, paths.profile):
+                changes[path] = None
+        lifecycle.begin(paths, shell, changes, reload_on_recovery=not keep_settings,
+                        expected={shell: before, receipt: receipt_before})
         try:
+            atomic(shell, written)
             if not keep_settings:
                 Session(paths).reset_saved()
+            archive = paths.root / "lifecycle/prepared-removals" / secrets.token_hex(12)
+            archive.mkdir(parents=True, exist_ok=True, mode=0o700)
+            # Retain a durable archived copy before removing the live receipt.
+            atomic(archive / "installation.json", paths.owned_blob(receipt, missing_ok=False))
+            receipt.unlink()
         except Exception:
-            if shell.read_bytes() == written:
-                atomic(shell, before)
+            lifecycle.rollback(paths, shell)
             raise
-        archive = paths.root / "lifecycle/prepared-removals" / secrets.token_hex(12)
-        archive.mkdir(parents=True, exist_ok=True, mode=0o700)
-        receipt.rename(archive / "installation.json")
+        lifecycle.finish(paths)
     print("Restored the stock indicator. The plugin checkout is ready for Omarchy removal.")
 
 

@@ -27,6 +27,7 @@
   "qmldir",
   "tools/diagnostics.py",
   "tools/install.py",
+  "tools/lifecycle.py",
   "tools/package_support.py",
   "tools/plugin.py"
 ]

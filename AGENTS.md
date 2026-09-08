@@ -23,7 +23,7 @@ Read [README.md](README.md) for commands, then the relevant part of
 | Live save, persistence and recovery | `backend/session.py` |
 | Fixed Lua loader and inert active/pending data | `backend/deferred.py`, `backend/deferred_runtime.py` |
 | Runtime process supervision and output bounds | `backend/process_supervisor.py` |
-| Git activation/removal | `tools/plugin.py`, `tests/test_integration.py` |
+| Git activation/removal and crash recovery | `tools/plugin.py`, `tools/lifecycle.py`, `tests/test_integration.py` |
 | Package contents and legacy copied installs | `tools/package_support.py`, `tools/package.py`, `tools/install.py`, `manifest.json`, `qmldir` |
 | Redacted support report | `tools/diagnostics.py`, `SUPPORT.md` |
 

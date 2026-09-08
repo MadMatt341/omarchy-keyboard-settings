@@ -125,6 +125,162 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class GitLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        # Lifecycle rollback may reload the compositor; always isolate it.
+        self.recovery_desktop = FakeHyprland()
+        guard = patch("tools.lifecycle.Session", side_effect=lambda paths: Session(paths, self.recovery_desktop, []))
+        guard.start()
+        self.addCleanup(guard.stop)
+
+    def test_lifecycle_process_death_is_recoverable_at_each_write_boundary(self):
+        from tools import lifecycle
+        from backend.session import atomic as real_atomic
+        real_unlink = Path.unlink
+        # Exit after each externally visible file mutation, not by raising an
+        # exception that the operation could catch and roll back in-process.
+        cases = [('activate', name) for name in
+                 ('lifecycle.json', 'installation.json', 'promote-v1.py',
+                  'active-v1.conf', 'pending-v1.conf', 'madmatt-keyboard-settings.lua', 'shell.json')]
+        cases += [('remove', name) for name in
+                  ('lifecycle.json', 'shell.json', 'madmatt-keyboard-settings.lua',
+                   'promote-v1.py', 'active-v1.conf', 'pending-v1.conf', 'settings.json',
+                   'archive-receipt', 'installation.json')]
+        for action, boundary in cases:
+            with self.subTest(action=action, boundary=boundary), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                target, shell, original = self.fixture(root)
+                env = {'XDG_CONFIG_HOME': str(root / '.config'),
+                       'XDG_STATE_HOME': str(root / '.local/state'),
+                       'XDG_CACHE_HOME': str(root / '.cache')}
+                with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env), \
+                        patch('tools.plugin.Session', side_effect=lambda paths: Session(paths, FakeHyprland(), [])):
+                    paths = Session().paths
+                    if action == 'remove':
+                        activate(True, target)
+                        real_atomic(paths.profile, b'{"profiles":{}}')
+
+                    def stop(path, mutation):
+                        path = Path(path)
+                        archived = 'prepared-removals' in path.parts
+                        if path not in (shell, paths.override) and path.parent != paths.root and not archived:
+                            return
+                        wanted = ('archive-receipt' if archived and path.name == 'installation.json'
+                                  else path.name)
+                        if wanted == boundary and (mutation == 'write' or action == 'remove'):
+                            os._exit(77)
+
+                    def write(path, data):
+                        real_atomic(path, data)
+                        stop(path, 'write')
+
+                    def unlink(path, *args, **kwargs):
+                        result = real_unlink(path, *args, **kwargs)
+                        # Do not terminate after clearing the journal: that is
+                        # already a fully committed operation.
+                        if Path(path) != paths.lifecycle:
+                            stop(path, 'unlink')
+                        return result
+
+                    sys.stdout.flush()
+                    pid = os.fork()
+                    if pid == 0:
+                        with patch('tools.plugin.atomic', side_effect=write), \
+                                patch('tools.lifecycle.atomic', side_effect=write), \
+                                patch('backend.session.atomic', side_effect=write), \
+                                patch.object(Path, 'unlink', unlink):
+                            if action == 'activate':
+                                activate(True, target)
+                            else:
+                                prepare_remove(True, False, target)
+                        os._exit(99)
+                    _, status = os.waitpid(pid, 0)
+                    self.assertEqual(os.waitstatus_to_exitcode(status), 77)
+                    self.assertTrue(paths.lifecycle.exists())
+                    before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+                    with self.assertRaisesRegex(SettingsError, 'interrupted lifecycle'):
+                        (activate if action == 'activate' else prepare_remove)(False, source=target)
+                    self.assertEqual(before, {p: p.read_bytes() for p in root.rglob('*') if p.is_file()})
+                    with self.assertRaisesRegex(SettingsError, 'interrupted installation'):
+                        with paths.lock():
+                            self.fail('picker lock should be blocked')
+                    if action == 'activate':
+                        activate(True, target)
+                        self.assertIn(ID, shell.read_text())
+                        self.assertEqual(paths.override.read_bytes(), LOADER)
+                        self.assertTrue((paths.root / 'installation.json').exists())
+                    else:
+                        prepare_remove(True, False, target)
+                        self.assertEqual(json.loads(shell.read_text()), original)
+                        self.assertFalse(any(p.exists() for p in
+                            (paths.override, paths.promoter, paths.active, paths.pending, paths.profile,
+                             paths.root / 'installation.json')))
+                    self.assertFalse(paths.lifecycle.exists())
+
+    def test_lifecycle_recovery_preserves_conflicting_external_edit(self):
+        from tools import lifecycle
+        from backend.session import Paths, atomic as real_atomic
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, _ = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'), 'XDG_STATE_HOME': str(root / '.local/state')}
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
+                paths = Paths()
+                before = shell.read_bytes()
+                with paths.lock():
+                    lifecycle.begin(paths, shell, {shell: b'{"bar":{}}'})
+                shell.write_bytes(before + b'\n')
+                with self.assertRaisesRegex(SettingsError, 'external edits were preserved'):
+                    activate(True, target)
+                self.assertEqual(shell.read_bytes(), before + b'\n')
+                self.assertTrue(paths.lifecycle.exists())
+                shell.write_bytes(before)
+                activate(True, target)
+                self.assertFalse(paths.lifecycle.exists())
+
+    def test_archive_failure_rolls_back_and_retry_removes(self):
+        from backend.session import atomic as real_atomic
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, _ = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'), 'XDG_STATE_HOME': str(root / '.local/state')}
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env), \
+                    patch('tools.plugin.Session', side_effect=lambda paths: Session(paths, FakeHyprland(), [])):
+                activate(True, target)
+                before = shell.read_bytes()
+                def fail_archive(path, data):
+                    if 'prepared-removals' in Path(path).parts:
+                        raise OSError('archive unavailable')
+                    real_atomic(path, data)
+                with patch('tools.plugin.atomic', side_effect=fail_archive), \
+                        self.assertRaisesRegex(OSError, 'archive unavailable'):
+                    prepare_remove(True, False, target)
+                self.assertEqual(shell.read_bytes(), before)
+                self.assertEqual(Session().paths.override.read_bytes(), LOADER)
+                prepare_remove(True, False, target)
+                self.assertIn(STOCK, shell.read_text())
+
+    def test_invalid_lifecycle_journal_cannot_restore_executable_content(self):
+        import base64
+        from tools import lifecycle
+        from backend.session import Paths, atomic as real_atomic
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target, shell, _ = self.fixture(root)
+            env = {'XDG_CONFIG_HOME': str(root / '.config'), 'XDG_STATE_HOME': str(root / '.local/state')}
+            with patch('pathlib.Path.home', return_value=root), patch.dict(os.environ, env):
+                paths = Paths()
+                with paths.lock():
+                    lifecycle.begin(paths, shell, {})
+                record = json.loads(paths.lifecycle.read_bytes())
+                record['files']['override']['before'] = base64.b64encode(b'os.execute("unexpected")').decode()
+                real_atomic(paths.lifecycle, json.dumps(record).encode())
+                before = shell.read_bytes()
+                with self.assertRaisesRegex(SettingsError, 'manual review'):
+                    activate(True, target)
+                self.assertEqual(shell.read_bytes(), before)
+                self.assertFalse(paths.override.exists())
+                self.assertTrue(paths.lifecycle.exists())
+
     def test_beta1_loader_upgrade_allowlist_is_exact(self):
         self.assertEqual(hashlib.sha256(BETA1_LOADER).hexdigest(), BETA1_LOADER_SHA256)
         self.assertEqual(len(BETA1_LOADER), BETA1_LOADER_BYTES)
