@@ -225,13 +225,13 @@ new commits.
 
 | Field | Value |
 | --- | --- |
-| Name | Keyboard Settings |
+| Name | Keyboard Layouts |
 | ID | `madmatt.keyboard-settings`; absent from the active and retired registry when checked on 2026-09-02 |
 | Repository | `https://github.com/MadMatt341/omarchy-keyboard-settings` |
 | Category | `Hardware` |
 | Tags | `bar`, `hyprland`, `quickshell` |
 | Preview | `preview.png` |
-| Summary | Native keyboard layout and variant picker with validated, immediate editing. |
+| Summary | Keyboard layout switcher with variants, a default layout, and switching shortcuts. |
 | Maintainer notes | Public beta; guarded live settings with runtime rollback, explicit configuration ownership, no typed-text collection, tested-version scope and reversible preparation for removal. Feedback is especially welcome for clean-account installation and genuinely different replacement keyboards. |
 
 The marketplace may classify the lifecycle and legacy installer tools as an

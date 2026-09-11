@@ -1221,3 +1221,12 @@ The user accepted the installed mouse-focus fix on 2026-09-11 and requested
 commit/push. This is live UI acceptance only, not new physical typing or login
 persistence evidence. Before committing, issue #4530 was closed and listed; both
 marketplace reports matched release main `f12892c7624aca9e258e9710f49c12271aa1310d`.
+
+## Display name for discovery — 2026-09-11
+
+Renamed the manifest name and bar display name to Keyboard Layouts. The summary
+now starts with Keyboard layout switcher; README and proposed listing metadata
+match. The plugin ID, repository URL and installation commands are unchanged.
+Omarchy package validation and diff whitespace checks passed. This metadata-only
+change does not alter keyboard behavior. Marketplace search matching has not been
+verified, and the published marketplace snapshot has not yet been updated.
