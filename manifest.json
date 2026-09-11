@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "madmatt.keyboard-settings",
   "name": "Keyboard Layouts",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "author": "madmatt and contributors",
   "license": "MIT",
   "description": "Keyboard layout switcher with variants, a default layout, and switching shortcuts",

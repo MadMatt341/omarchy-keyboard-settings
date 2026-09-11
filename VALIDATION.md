@@ -1230,3 +1230,13 @@ match. The plugin ID, repository URL and installation commands are unchanged.
 Omarchy package validation and diff whitespace checks passed. This metadata-only
 change does not alter keyboard behavior. Marketplace search matching has not been
 verified, and the published marketplace snapshot has not yet been updated.
+
+## Beta.4 release candidate — 2026-09-11
+
+Version 0.1.0-beta.4 includes the Keyboard Layouts display name and the accepted
+layout-limit, addition-transition and mouse-focus fixes. Full release preparation
+passed 113 Python tests, 39 native checks, offline health budgets, package
+validation and diff whitespace checks. Logs are under `work/beta4-*.log`.
+The accepted live UI changes are recorded above; no new physical typing or
+login persistence claim is made. Export and publication SHA evidence will be
+recorded in the release and marketplace request, not added to frozen main.
