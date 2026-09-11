@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-beta.4 — 2026-09-11
+
+- Rename the display name to Keyboard Layouts and clarify its searchable summary,
+  preserving the plugin ID and installation URL.
+- Replace Add layout with an explanatory message when four layouts are saved.
+- Keep search results steady until an addition is confirmed, then open the
+  updated editor; preserve navigation away and failure feedback.
+- Prevent the first search row from flashing a keyboard highlight during mouse
+  selection and saving.
+
 ## 0.1.0-beta.3 — 2026-09-08
 
 - Journal activation, loader refresh and removal before changing their files;

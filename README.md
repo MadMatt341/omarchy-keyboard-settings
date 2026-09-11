@@ -1,14 +1,14 @@
-# Keyboard Settings for Omarchy
+# Keyboard Layouts for Omarchy
 
-Native keyboard layout and variant picker for Omarchy's Quickshell bar. It
+Native keyboard layout switcher and variant picker for Omarchy's Quickshell bar. It
 replaces the stock `omarchy.keyboard-layout` entry in the same slot. This is an
 independent plugin and is not an official Omarchy project.
 
-![Keyboard Settings editor](preview.png)
+![Keyboard Layouts editor](preview.png)
 
-This is a **public beta**. `0.1.0-beta.3` adds recoverable activation/removal and separates
-development instructions from the installed plugin; its exact offline and live
-status is recorded in [VALIDATION.md](VALIDATION.md).
+This is a **public beta**. `0.1.0-beta.4` introduces the Keyboard Layouts name,
+explains the four-layout limit and improves feedback while adding layouts. Exact
+offline and live status is recorded in [VALIDATION.md](VALIDATION.md).
 Compatibility is intentionally limited to the tested environment while beta
 feedback broadens coverage to clean accounts and different keyboard models.
 

@@ -1161,3 +1161,82 @@ Older interrupted installations that have no lifecycle journal still require
 manual review; this does not infer ownership from an incomplete old receipt.
 Fresh-account lifecycle and physical typing/login checks remain open. Exact source
 and release SHAs plus exported-tree results are recorded externally after generation.
+
+
+## Layout limit explanation — 2026-09-11
+
+The editor displays “Maximum of 4 layouts. Remove one to add another.” beneath
+the disabled Add layout row when four layouts are saved. The native harness
+passed all 35 tests, including showing the hint at four and hiding it with Add
+re-enabled at three. Inspected `work/native-captures/editor-layout-limit.png`: the
+message wraps within the popup above the preferences separator. No live install,
+keyboard changes, physical typing or login persistence checks were performed.
+
+User-authorized local test deployment: package validation passed; installed only
+the tested `Picker.qml` into the existing clean Git plugin checkout after
+confirming its previous bytes matched development HEAD. Original saved under
+`work/live-update-backup/Picker.qml`; installed bytes verified against the source.
+This leaves a deliberate local modification in the installed Git checkout.
+Keyboard configuration was not changed. Live visual acceptance awaits the user.
+
+Follow-up: Add layout is now hidden at four layouts, with the limit message
+replacing it. At three layouts Add returns and the message disappears. All 35
+native tests and package validation passed; inspected the updated limit capture.
+Installed the verified picker with a prior-file comparison and restarted the
+Omarchy shell successfully. Physical typing and login persistence were not tested.
+
+## Addition page transition — 2026-09-11
+
+Selecting a layout now leaves search visible with the existing activity indicator
+until the matching successful save readback opens the editor. Failure retains
+search; navigating away or resetting the popup cancels the automatic transition.
+The underlying guarded save is unchanged. All 38 native cases passed, including
+success, failure and navigation during addition; the search interaction check now
+waits for confirmation. Inspected `work/native-captures/adding-layout.png`. Package
+validation and diff whitespace checks passed. Installed the verified Picker.qml
+after checking the previous bytes, and restarted the shell successfully. User
+acceptance of perceived latency remains open; no live keyboard edits or physical
+typing/login tests were performed by the agent.
+
+Follow-up for a reported custom-layout row flash: hold the search result snapshot
+from the accepted addition until completion or navigation away. The regression
+check updates the fake status before actionFinished and verifies the results stay
+identical. All 38 native checks and package validation passed; inspected the
+adding-layout capture. Installed verified picker and restarted the shell. The
+reported live flash was not independently captured; user acceptance remains open.
+
+## Mouse selection focus feedback — 2026-09-11
+
+A clicked search row now sets the current index before saving. The search
+keyboard cursor highlight is suppressed while interaction is locked, preventing
+focus transfer to the list from highlighting row zero. A mouse-driven native
+check clicks the second result and verifies the first has no cursor during save.
+All 39 native cases, package validation and diff checks passed. Inspected
+`work/native-captures/mouse-adding-layout.png`: the hovered German row retains
+its highlight while the first French row stays unhighlighted. Installed the
+verified picker after comparing previous bytes and restarted the shell. Live
+acceptance remains with the user; no keyboard configuration was changed.
+
+The user accepted the installed mouse-focus fix on 2026-09-11 and requested
+commit/push. This is live UI acceptance only, not new physical typing or login
+persistence evidence. Before committing, issue #4530 was closed and listed; both
+marketplace reports matched release main `f12892c7624aca9e258e9710f49c12271aa1310d`.
+
+## Display name for discovery — 2026-09-11
+
+Renamed the manifest name and bar display name to Keyboard Layouts. The summary
+now starts with Keyboard layout switcher; README and proposed listing metadata
+match. The plugin ID, repository URL and installation commands are unchanged.
+Omarchy package validation and diff whitespace checks passed. This metadata-only
+change does not alter keyboard behavior. Marketplace search matching has not been
+verified, and the published marketplace snapshot has not yet been updated.
+
+## Beta.4 release candidate — 2026-09-11
+
+Version 0.1.0-beta.4 includes the Keyboard Layouts display name and the accepted
+layout-limit, addition-transition and mouse-focus fixes. Full release preparation
+passed 113 Python tests, 39 native checks, offline health budgets, package
+validation and diff whitespace checks. Logs are under `work/beta4-*.log`.
+The accepted live UI changes are recorded above; no new physical typing or
+login persistence claim is made. Export and publication SHA evidence will be
+recorded in the release and marketplace request, not added to frozen main.
