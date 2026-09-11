@@ -10,7 +10,7 @@ for evidence and open live checks. Development instructions and tests live on th
 | --- | --- |
 | `picker` | Shows the layouts reported by the running compositor. Clicking one switches all verified typing interfaces with `switchxkblayout` and closes the popup. A separator precedes **Edit layouts…**. |
 | `editor` | Shows the saved configuration. With multiple layouts, each row has a × remove button; the sole remaining row has no remove control. **Add layout** opens search. A separator divides layout management from the roomier default-at-login and switching preferences. Multiple layouts use the default selector; a sole layout is identified statically as the unavoidable login default. Default and shortcut changes save immediately. |
-| `search` | Shows example queries above the field, then searches installed layout/language/country metadata plus variant IDs and labels. Terms match independently across punctuation and rank exact layout/pair matches first, preferring standard layouts at equal relevance. Selecting a result adds it and saves immediately. Already configured pairs are omitted. |
+| `search` | Shows example queries above the field, then searches installed layout/language/country metadata plus variant IDs and labels. Terms match independently across punctuation and rank exact layout/pair matches first, preferring standard layouts at equal relevance. Selecting a result starts saving immediately; search keeps its results steady with the activity indicator until the confirmed save opens the updated editor. Mouse selection sets the current result before saving; the keyboard cursor highlight is suppressed while controls are locked so focus transfer cannot highlight the first result. A failed save stays on search, and navigating away prevents automatic return. Already configured pairs are omitted. |
 | `devices` | Chooses a verified physical typing keyboard. Unresolved interfaces are disabled. Preference is saved without changing keyboard settings. |
 
 There is no typing trial, timer, Keep, or Revert step. Layout-set and shortcut
@@ -39,7 +39,9 @@ The first saved layout is the login default. Adding appends to the list, so the
 existing default stays first. Choosing another default moves that exact
 layout/variant pair to the front while preserving the relative order of the
 others. This also changes the post-login shortcut cycle order. Between one and
-four distinct layout/variant pairs are supported.
+four distinct layout/variant pairs are supported. At four layouts, Add layout is
+hidden and a message in its place explains: “Maximum of 4 layouts. Remove one to
+add another.” The message disappears when fewer than four layouts remain.
 
 Tab/arrows/Enter navigate controls. Search retains ordinary text input. Escape
 closes the popup from every page; the visible back arrow navigates one page at a

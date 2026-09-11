@@ -51,6 +51,8 @@ FocusScope {
     property var heldView: null
     property var rejectedRemoval: null
     property int pickerSwitchRequestId: 0
+    property int additionRequestId: 0
+    property var additionResults: null
     // Active removal is one user operation even though it uses two helper
     // actions. Keep both pages on the same confirmed snapshot until the final
     // save readback is available; backend.state can still verify the staged
@@ -72,6 +74,8 @@ FocusScope {
     activeFocusOnTab: true
 
     function reset() {
+        additionRequestId = 0
+        additionResults = null
         page = "picker"
         search = ""
         Qt.callLater(function() { root.focusFirst() })
@@ -81,7 +85,12 @@ FocusScope {
         else if (page === "picker" && layoutRepeater.count) layoutRepeater.itemAt(0).forceActiveFocus()
         else backButton.forceActiveFocus()
     }
-    function go(where) { page = where; Qt.callLater(function() { root.focusFirst() }) }
+    function go(where) {
+        if (where !== "search") additionRequestId = 0
+        additionResults = null
+        page = where
+        Qt.callLater(function() { root.focusFirst() })
+    }
     function layoutLabel(row) {
         if (!row) return "layout"
         return row.label + (row.variant ? " — " + row.variantLabel : "")
@@ -206,7 +215,12 @@ FocusScope {
         if (ids().indexOf(id) >= 0) return
         let next = ids()
         next.push(id)
-        if (save(next, editorShortcut)) go("editor")
+        let snapshot = results()
+        let requestId = save(next, editorShortcut)
+        if (requestId) {
+            additionResults = snapshot
+            additionRequestId = requestId
+        }
     }
     function normalized(value) {
         return String(value || "").toLowerCase()
@@ -228,6 +242,7 @@ FocusScope {
         return 100
     }
     function results() {
+        if (additionResults !== null) return additionResults
         let query = normalized(search)
         let terms = query ? query.split(" ") : []
         let selected = ids()
@@ -287,6 +302,12 @@ FocusScope {
     Connections {
         target: root.backend
         function onActionFinished(result) {
+            if (result.id === root.additionRequestId) {
+                root.additionRequestId = 0
+                if (result.ok && root.page === "search") root.go("editor")
+                root.additionResults = null
+                return
+            }
             if (root.stagedRemoval && result.id === root.stagedRemoval.requestId) {
                 let removal = root.stagedRemoval
                 if (!result.ok) {
@@ -557,8 +578,23 @@ FocusScope {
                     objectName: "addLayout"
                     width: parent.width
                     title: "+ Add layout"
+                    visible: root.editorRows.length < 4
                     enabled: root.editorRows.length < 4 && !root.view.problem && !root.interactionLocked
                     onClicked: root.go("search")
+                }
+                Text {
+                    objectName: "layoutLimitHint"
+                    visible: root.editorRows.length >= 4
+                    width: parent.width
+                    text: "Maximum of 4 layouts. Remove one to add another."
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.bodySmall
+                    color: Color.popups.text
+                    opacity: 0.7
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
                 }
                 Ui.PanelSeparator {
                     id: preferencesSeparator
@@ -663,6 +699,7 @@ FocusScope {
                 }
                 ListView {
                     id: searchResults
+                    objectName: "searchResults"
                     width: parent.width
                     height: Style.space(280)
                     clip: true
@@ -680,9 +717,13 @@ FocusScope {
                         width: searchResults.width
                         title: modelData.layout.label
                         subtitle: modelData.variant.id ? modelData.variant.label : ""
-                        hasCursor: searchResults.activeFocus && index === searchResults.currentIndex
+                        hasCursor: !root.interactionLocked && searchResults.activeFocus
+                            && index === searchResults.currentIndex
                         enabled: !root.interactionLocked
-                        onClicked: root.add(modelData.layout, modelData.variant)
+                        onClicked: {
+                            searchResults.currentIndex = index
+                            root.add(modelData.layout, modelData.variant)
+                        }
                     }
                 }
                 Text {

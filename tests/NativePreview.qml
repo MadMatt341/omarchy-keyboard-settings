@@ -195,6 +195,30 @@ Scope {
             compare(separator.visible, false)
             console.log("NATIVE_SEPARATOR_OK")
         }
+        function test_editor_layout_limit_hint() {
+            let rows = fake.baseLayouts.concat([
+                {id: "de/", layout: "de", variant: "", label: "German", variantLabel: "Standard", code: "DE", country: "de"},
+                {id: "fr/", layout: "fr", variant: "", label: "French", variantLabel: "Standard", code: "FR", country: "fr"}
+            ])
+            fake.state = Object.assign({}, fake.state, {layouts: rows, configuredLayouts: rows})
+            picker.go("editor")
+            let hint = findChild(picker, "layoutLimitHint")
+            let add = findChild(picker, "addLayout")
+            tryCompare(hint, "visible", true)
+            compare(add.enabled, false)
+            compare(add.visible, false)
+            wait(30)
+            let captured = false
+            picker.grabToImage(result => {
+                verify(result.saveToFile(Quickshell.env("KEYBOARD_PREVIEW_OUTPUT") + "/editor-layout-limit.png"))
+                captured = true
+            })
+            tryVerify(() => captured)
+            fake.state = Object.assign({}, fake.state, {layouts: rows.slice(0, 3), configuredLayouts: rows.slice(0, 3)})
+            tryCompare(hint, "visible", false)
+            compare(add.visible, true)
+            compare(add.enabled, true)
+        }
         function test_editor_preferences_hierarchy() {
             picker.go("editor")
             wait(20)
@@ -674,6 +698,67 @@ Scope {
             verify(!fake.state.pendingRestart)
             console.log("NATIVE_DEFAULT_LAYOUT_OK")
         }
+        function test_mouse_add_does_not_highlight_first_result() {
+            fake.autoAdvance = false
+            picker.go("search")
+            let list = findChild(picker, "searchResults")
+            tryVerify(() => list.count >= 2)
+            wait(30)
+            let first = list.itemAtIndex(0)
+            let chosen = list.itemAtIndex(1)
+            verify(first && chosen)
+            mouseMove(chosen, chosen.width / 2, chosen.height / 2)
+            mouseClick(chosen, chosen.width / 2, chosen.height / 2, Qt.LeftButton)
+            compare(fake.saveCount, 1)
+            wait(30)
+            verify(!list.itemAtIndex(0).hasCursor)
+            let captured = false
+            picker.grabToImage(result => {
+                verify(result.saveToFile(Quickshell.env("KEYBOARD_PREVIEW_OUTPUT") + "/mouse-adding-layout.png"))
+                captured = true
+            })
+            tryVerify(() => captured)
+            fake.finishAction(true)
+            fake.finishReadback(true)
+            compare(picker.page, "editor")
+        }
+        function test_addition_waits_for_readback_data() {
+            return [{tag: "success", success: true, leave: false},
+                {tag: "failure", success: false, leave: false},
+                {tag: "navigate-away", success: true, leave: true}]
+        }
+        function test_addition_waits_for_readback(data) {
+            fake.autoAdvance = false
+            picker.go("search")
+            let previousResults = picker.results()
+            picker.add(fake.catalog[2], fake.catalog[2].variants[0])
+            compare(picker.page, "search")
+            compare(picker.editorRows.length, 2)
+            verify(findChild(picker, "headerActivity").visible)
+            if (data.success && !data.leave) {
+                wait(30)
+                let captured = false
+                picker.grabToImage(result => {
+                    verify(result.saveToFile(Quickshell.env("KEYBOARD_PREVIEW_OUTPUT") + "/adding-layout.png"))
+                    captured = true
+                })
+                tryVerify(() => captured)
+            }
+            fake.finishAction(data.success)
+            // The status reply can update bindings before actionFinished.
+            // Keep the visible results unchanged across that interval.
+            if (data.success) {
+                fake.applyOperation(fake.activeOperation)
+                compare(JSON.stringify(picker.results()), JSON.stringify(previousResults))
+            }
+            compare(picker.page, "search")
+            if (data.leave) picker.go("picker")
+            fake.finishReadback(true)
+            compare(picker.page, data.leave ? "picker" : data.success ? "editor" : "search")
+            compare(picker.editorRows.length, data.success ? 3 : 2)
+            compare(picker.additionRequestId, 0)
+            compare(picker.additionResults, null)
+        }
         function test_added_layout_is_immediately_switchable() {
             picker.go("search")
             wait(20)
@@ -876,7 +961,7 @@ Scope {
             keyClick(Qt.Key_Return)
             tryCompare(fake, "saveCount", 1)
             compare(fake.saves[0].layouts.join(","), "pl/,us/")
-            compare(picker.page, "editor")
+            tryCompare(picker, "page", "editor")
             console.log("NATIVE_SEARCH_RELEVANCE_OK")
         }
     }
