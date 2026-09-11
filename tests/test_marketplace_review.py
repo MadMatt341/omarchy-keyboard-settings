@@ -21,6 +21,20 @@ def reports():
 
 
 class ReviewTests(unittest.TestCase):
+    def test_update_issue_reports(self):
+        comments = reports()
+        comments[0]["body"] = ("<!-- marketplace-update-validation -->\n"
+                               "Quattro compatibility passed at update commit `aaaaaaa…`\n"
+                               "**Ready for verified update review.**")
+        paths = []
+        def read(path):
+            paths.append(path)
+            return comments if "/comments?" in path else {"sha": SHA}
+        self.assertIn("#6363", check(read, issue=6363))
+        self.assertTrue(any("/issues/6363/comments?" in p for p in paths))
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            report_refs(comments + reports()[:1])
+
     def test_matching_remote_reports(self):
         self.assertIn(SHA, check(lambda path: reports() if "/comments?" in path else {"sha": SHA}))
 

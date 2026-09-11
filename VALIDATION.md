@@ -1240,3 +1240,22 @@ validation and diff whitespace checks. Logs are under `work/beta4-*.log`.
 The accepted live UI changes are recorded above; no new physical typing or
 login persistence claim is made. Export and publication SHA evidence will be
 recorded in the release and marketplace request, not added to frozen main.
+
+## Release handoff verification — 2026-09-11
+
+Remote beta.4 main and the GitHub prerelease both identify
+`973901571f37759c014da56c006d96e2aee3be0f`, exported from development
+`bfad88dbafb255c6de50bd35e6c7a94f62789466`. Update request #6363 has matching
+compatibility and security-baseline reports, no baseline findings, and the
+installer capability. A maintainer accepted the manual review and applied
+approved-and-verified; the publication workflow was still pending when checked.
+Approval alone is not recorded as completed marketplace publication.
+
+The development-only review checker now accepts the update-report format and an
+explicit --issue number, defaulting to #6363. All six focused tests passed,
+including original submissions, update reports, duplicate/spoofed reports, drift,
+pagination and concurrent main movement. The live check matched both beta.4
+reports to remote main. AGENTS.md and the publication runbook now require checking
+remote release and marketplace state plus pending development changes before
+reporting completion. No runtime files, main release contents or live keyboard
+configuration were changed by this follow-up.

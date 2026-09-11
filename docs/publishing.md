@@ -103,7 +103,7 @@ installed plugin tree.
   `development`; its previous default-branch daily schedule is not deployed by
   this release. A separate future automation can restore scheduled monitoring.
 - With publication authorization, publish the complete replacement `main`
-  candidate and update existing marketplace issue #4530 to its full release SHA.
+  candidate and submit its full release SHA through the applicable marketplace workflow below.
   Rerun marketplace validation and the security baseline for that same SHA, then
   obtain the remaining manual review. Freeze `main` during review and continue
   development on `development`.
@@ -186,7 +186,7 @@ security audit.
 
 Finish code, documentation and validation evidence before selecting the final
 submission commit. Validate that commit, publish its immutable release, then
-update existing issue #4530 to the full SHA of published `main`. Confirm that
+submit the full SHA of published `main` through the applicable workflow below. Confirm that
 marketplace validation and the security baseline both cover it. Freeze `main`
 until the maintainer finishes review; even documentation changes invalidate the
 commit match. Continue development on separate branches. Put later publication
@@ -200,6 +200,8 @@ GitHub CLI required):
 ```sh
 python3 -B tools/check_marketplace_review.py
 ```
+
+The current update request is [#6363](https://github.com/omacom/omarchy-plugin-marketplace/issues/6363) for beta.4 release `973901571f37759c014da56c006d96e2aee3be0f`. Initial submission #4530 covers beta.3 only. The checker defaults to #6363; use `--issue NUMBER` for a later request and update the default when that request becomes current.
 
 The check compares remote `main` with the validation report's GitHub-resolved
 commit and the security baseline's full SHA. It accepts only GitHub Actions bot
@@ -220,6 +222,32 @@ expected until revalidation finishes. Do not commit the resulting publication
 evidence back to `main` during that review. After approval, future updates also
 need the marketplace's applicable update/review process; old reports do not cover
 new commits.
+
+## Post-approval handoff and listed-plugin updates
+
+Before reporting release status, read current remote main, GitHub releases and the
+latest submission/update issue, then compare their version, display name and SHA
+with development. Local branch state and an old approval comment are insufficient.
+Distinguish source prepared, Git release published, marketplace review accepted,
+and marketplace publication completed. An approval label alone does not prove
+publication; verify the bot publication result and public listing.
+
+When approval arrives, check for accepted changes waiting on development and
+continue already-authorized release work. If publication has not been authorized,
+prepare the tested candidate and state the concrete remaining action. Do not
+report the whole release complete while the listing or queued changes remain
+unresolved. Check for an existing update request before creating another one.
+
+For an already listed plugin, the current marketplace procedure requires a new
+**Plugin verification** request with **Verify and publish a newer upstream
+commit**, the permanent plugin ID, repository root URL and full current main SHA.
+Use the exact headings in the current `verify-plugin.yml` form. Do not reopen the
+completed initial submission. Corrections to a pending update belong on that
+existing update issue. Recheck the upstream
+[verification procedure](https://github.com/omacom/omarchy-plugin-marketplace/blob/main/VERIFICATION.md#promoting-a-plugin-update)
+for each release. After submitting, point the drift checker at that issue, verify
+both reports, and freeze main until promotion completes. Keep follow-up evidence
+on development or in the release/request rather than committing it to main.
 
 ## Proposed marketplace listing
 
