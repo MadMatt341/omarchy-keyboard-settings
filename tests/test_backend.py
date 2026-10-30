@@ -160,6 +160,21 @@ class DeviceTests(unittest.TestCase):
         self.assertEqual(pick(groups)['names'], ['typing-keyboard', 'typing-keyboard-aux'])
         self.assertEqual(len(excluded), 3)
 
+    def test_hyprland_names_keep_characters_that_sysfs_records_normalize(self):
+        # Hyprland lowercases names and turns spaces into '-', but keeps '/'
+        # and parentheses; metadata() normalizes those to '-'.
+        records = []
+        for label, group in (('Logitech K540/K545', 'usb-receiver'), ('Keyboard (Bluetooth)', 'bt-keyboard')):
+            entry = record(normalized(label), group)
+            entry['label'] = label
+            records.append(entry)
+        listing = {'keyboards': [keyboard('logitech-k540/k545', 'one'),
+                                 keyboard('keyboard-(bluetooth)', 'two')]}
+        groups, excluded = resolve(listing, records)
+        self.assertEqual(excluded, [])
+        self.assertEqual([g['label'] for g in groups], ['Logitech K540/K545', 'Keyboard (Bluetooth)'])
+        self.assertTrue(all(g['certain'] for g in groups))
+
     def test_ambiguous_devices_are_never_guessed(self):
         groups, _ = resolve({'keyboards': [keyboard(), keyboard('another', 'two')]}, [record(), record('another', 'usb-two')])
         self.assertIsNone(pick(groups))

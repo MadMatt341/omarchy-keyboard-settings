@@ -50,12 +50,18 @@ def resolve(devices, records):
     excluded = []
     for keyboard in keyboards:
         name = keyboard.get("name", "")
-        if not name or NON_TYPING.match(name):
+        hypr_name = normalized(name)
+        if not name or NON_TYPING.match(hypr_name):
             excluded.append(name)
             continue
-        matches = [r for r in records if name == r["name"] or re.fullmatch(re.escape(r["name"]) + r"-\d+", name)]
+        # Hyprland preserves characters such as '/' and parentheses in names,
+        # while sysfs records are normalized above. Normalize both sides before
+        # matching; otherwise a known device appears unresolved.
+        matches = [r for r in records
+                   if hypr_name == r["name"]
+                   or re.fullmatch(re.escape(r["name"]) + r"-\d+", hypr_name)]
         # Exact matches take precedence over a synthetic duplicate suffix.
-        exact = [r for r in matches if name == r["name"]]
+        exact = [r for r in matches if hypr_name == r["name"]]
         matches = exact or matches
         typing = [r for r in matches if r["typing"] and r["group"]]
         if matches and not typing:
